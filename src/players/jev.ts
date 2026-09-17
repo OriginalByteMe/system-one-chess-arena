@@ -4,11 +4,13 @@ import {
   applyFallback,
   validateDecision,
 } from "../core/validation.ts";
+import { legalMoves, positionFromFen, toSan } from "../core/rules.ts";
 import type {
   ChoiceAnswer,
   Clock,
   Competitor,
   CompetitorManifest,
+  Fen,
   MoveDistribution,
   PositionInput,
   Provider,
@@ -119,15 +121,41 @@ function request(
   id: "strategy" | "move",
   instructions: string,
   options: readonly string[],
+  rubric?: { readonly [option: string]: string },
 ): SystemOneRequest {
   return {
     kind: "systemone",
     model: input.persona.model,
     state: stateFor(input),
     questions: {
-      [id]: { type: "choice", instructions, options },
+      [id]: {
+        type: "choice",
+        instructions,
+        options,
+        ...(rubric === undefined ? {} : { rubric }),
+      },
     },
   };
+}
+
+/**
+ * Names each move in algebraic notation. Measured against jev-1.13.0: bare UCI
+ * options found 1 of 3 mates in one, the same options named in SAN found 3 of 3.
+ * Notation only, no evaluation, so the competitor still does its own thinking.
+ */
+function sanRubric(
+  fen: Fen,
+  options: readonly string[],
+): { readonly [option: string]: string } {
+  const position = positionFromFen(fen);
+  const legal = new Set<string>(legalMoves(position));
+  const rubric: Record<string, string> = {};
+  for (const option of options) {
+    if (legal.has(option)) {
+      rubric[option] = toSan(position, option);
+    }
+  }
+  return rubric;
 }
 
 function moveChunks(legalMoves: readonly string[]): readonly (readonly string[])[] {
@@ -207,7 +235,13 @@ export function buildJevRequests(input: PositionInput): readonly SystemOneReques
   }
   for (const options of moveChunks(input.legalMoves)) {
     requests.push(
-      request(input, "move", "Choose the best legal move.", options),
+      request(
+        input,
+        "move",
+        "Choose the best legal move.",
+        options,
+        sanRubric(input.fen, options),
+      ),
     );
   }
   return requests;

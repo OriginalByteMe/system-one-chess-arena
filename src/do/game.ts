@@ -29,7 +29,9 @@ import type {
   Uci,
 } from "../core/types.ts";
 import { applyFallback } from "../core/validation.ts";
+import { buildJevRequests, parseJevResponses } from "../players/jev.ts";
 import { buildLlmRequest, parseLlmResponse } from "../players/llm.ts";
+import { parseSystemOneResponse, toSystemOneBody } from "../providers/wire.ts";
 import { idempotencyKey } from "../season/log.ts";
 
 const DECISION_PREFIX = "decision:";
@@ -344,20 +346,31 @@ export class GameDurableObject extends DurableObject<Env> {
     const clock = createSystemClock();
     const startedAt = clock.now();
     const signal = AbortSignal.timeout(manifest.budget.maxMs);
-    let providerValue: unknown = null;
+    const decisionModel = manifest.model.startsWith("jev");
+    const requests: readonly unknown[] = decisionModel
+      ? buildJevRequests(input).map(toSystemOneBody)
+      : [buildLlmRequest(input)];
+    const url = decisionModel
+      ? `${this.env.TYPESAFE_BASE_URL.replace(/\/+$/, "")}/v1/systemone`
+      : this.env.TYPESAFE_BASE_URL;
+    const providerValues: unknown[] = [];
+    const statuses: number[] = [];
     try {
-      const response = await fetch(this.env.TYPESAFE_BASE_URL, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.env.TYPESAFE_API_KEY
-            ? { authorization: `Bearer ${this.env.TYPESAFE_API_KEY}` }
-            : {}),
-        },
-        body: JSON.stringify(buildLlmRequest(input)),
-        signal,
-      });
-      providerValue = await response.json();
+      for (const body of requests) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(this.env.TYPESAFE_API_KEY
+              ? { authorization: `Bearer ${this.env.TYPESAFE_API_KEY}` }
+              : {}),
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+        statuses.push(response.status);
+        providerValues.push(await response.json());
+      }
     } catch (error) {
       if (!signal.aborted) throw error;
     }
@@ -378,11 +391,19 @@ export class GameDurableObject extends DurableObject<Env> {
         latencyMs,
       );
     } else {
-      const parsed = parseLlmResponse(
-        input,
-        parseProviderResponse(providerValue),
-        latencyMs,
-      );
+      const parsed = decisionModel
+        ? parseJevResponses(
+            input,
+            providerValues.map((value, index) =>
+              parseSystemOneResponse(value, statuses[index] ?? 200),
+            ),
+            latencyMs,
+          )
+        : parseLlmResponse(
+            input,
+            parseProviderResponse(providerValues[0] ?? null),
+            latencyMs,
+          );
       decision = parsed.ok
         ? parsed.decision
         : applyFallback(

@@ -235,6 +235,12 @@ export interface ChoiceQuestion {
   readonly type: "choice";
   readonly instructions: string;
   readonly options: readonly string[];
+  /**
+   * Per-option description. A decision model reads these, so an option named
+   * "d8h4" scores far worse than the same option described as "Qh4#". Optional
+   * because not every question has anything to add beyond the option name.
+   */
+  readonly rubric?: { readonly [option: string]: string };
 }
 
 export interface SystemOneRequest {
