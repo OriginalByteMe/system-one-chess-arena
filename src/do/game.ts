@@ -19,6 +19,7 @@ import type {
   Fen,
   LiveEvent,
   MoveEvent,
+  MoveDecision,
   Pairing,
   ProviderFailure,
   ResultEvent,
@@ -32,7 +33,9 @@ import { buildLlmRequest, parseLlmResponse } from "../players/llm.ts";
 import { idempotencyKey } from "../season/log.ts";
 
 const DECISION_PREFIX = "decision:";
+const ALARM_FAILURE_COUNT = "alarm-failure-count";
 const ALARM_DELAY_MS = 1_000;
+const MAX_ALARM_RETRY_DELAY_MS = 60_000;
 
 interface PersistedGame {
   readonly position: Position;
@@ -61,6 +64,73 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parseProviderResponse(value: unknown): ChatResponse | ProviderFailure {
+  if (!isObject(value)) {
+    violation("alarm", "provider response must be an object");
+  }
+
+  let tokens: TokenUsage | undefined;
+  if (value.tokens !== undefined) {
+    if (
+      !isObject(value.tokens) ||
+      typeof value.tokens.in !== "number" ||
+      !Number.isFinite(value.tokens.in) ||
+      typeof value.tokens.out !== "number" ||
+      !Number.isFinite(value.tokens.out)
+    ) {
+      violation(
+        "alarm",
+        "provider tokens must contain finite in and out counts",
+      );
+    }
+    tokens = {
+      in: value.tokens.in,
+      out: value.tokens.out,
+    };
+  }
+
+  if (value.kind === "chat" && typeof value.text === "string") {
+    return tokens === undefined
+      ? { kind: "chat", text: value.text }
+      : { kind: "chat", text: value.text, tokens };
+  }
+  if (
+    value.kind === "error" &&
+    typeof value.message === "string" &&
+    (value.status === undefined ||
+      (typeof value.status === "number" && Number.isFinite(value.status)))
+  ) {
+    return {
+      kind: "error",
+      message: value.message,
+      ...(value.status === undefined ? {} : { status: value.status }),
+    };
+  }
+  violation("alarm", "provider response must be chat or error");
+}
+
+function parseCursor(url: URL): number {
+  const value = url.searchParams.get("cursor");
+  if (value === null || !/^(0|[1-9]\d*)$/.test(value)) return 0;
+  const cursor = Number(value);
+  return Number.isSafeInteger(cursor) ? cursor : 0;
+}
+
+function moveEvent(record: DecisionRecord, fen: Fen): MoveEvent {
+  return {
+    type: "move",
+    gameId: record.gameId,
+    ply: record.ply + 1,
+    move: record.move,
+    fen,
+    competitor: { name: record.competitor, version: record.version },
+    strategy: record.strategy,
+    ...(record.confidence === undefined
+      ? {}
+      : { confidence: record.confidence }),
+    latencyMs: record.latencyMs,
+  };
+}
 
 function manifestFor(
   config: SeasonConfig,
@@ -80,7 +150,6 @@ function manifestFor(
   }
   return manifest;
 }
-
 
 export class GameDurableObject extends DurableObject<Env> {
   private alarmInFlight: Promise<void> | undefined;
@@ -108,12 +177,11 @@ export class GameDurableObject extends DurableObject<Env> {
       this.ctx.storage.kv.put("pairing", pairing);
       this.ctx.storage.kv.put("config", config);
       this.ctx.storage.kv.put("game", game);
+      this.ctx.storage.kv.delete(ALARM_FAILURE_COUNT);
     });
 
     if (finished === undefined) {
-      await this.ctx.storage.setAlarm(
-        performance.timeOrigin + createSystemClock().now() + ALARM_DELAY_MS,
-      );
+      await this.scheduleAlarm(ALARM_DELAY_MS);
     } else {
       await this.ctx.storage.deleteAlarm();
     }
@@ -124,7 +192,7 @@ export class GameDurableObject extends DurableObject<Env> {
       return this.alarmInFlight;
     }
 
-    const operation = this.advanceOnePly();
+    const operation = this.runAlarm();
     this.alarmInFlight = operation;
     try {
       await operation;
@@ -136,26 +204,49 @@ export class GameDurableObject extends DurableObject<Env> {
   }
 
   async fetch(request: Request): Promise<Response> {
-    const { pathname } = new URL(request.url);
-    if (pathname !== "/spectate") {
+    const url = new URL(request.url);
+    if (url.pathname !== "/spectate") {
       return new Response("Not found", { status: 404 });
     }
     if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade", { status: 426 });
     }
 
+    const stored = this.loadStoredGame();
+    if (stored === undefined) {
+      return new Response("Game not found", { status: 404 });
+    }
+    const cursor = parseCursor(url);
+
+    const events: LiveEvent[] = this.decisions()
+      .filter((record) => record.ply + 1 > cursor)
+      .map((record) =>
+        moveEvent(
+          record,
+          applyMove(positionFromFen(record.fen, record.ply), record.move).fen,
+        ),
+      );
+    if (stored.game.finished !== undefined) {
+      events.push({
+        type: "result",
+        gameId: stored.pairing.gameId,
+        ply: stored.game.position.ply,
+        result: stored.game.finished.result,
+        reason: stored.game.finished.reason,
+      });
+    }
+
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    for (const event of events) {
+      pair[1].send(JSON.stringify(event));
+    }
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
 
   async snapshot(): Promise<GameSnapshot> {
     const { game } = this.storedGame("snapshot");
-    const decisions = [...this.ctx.storage.kv.list<DecisionRecord>({
-      prefix: DECISION_PREFIX,
-    })]
-      .map((entry) => entry[1])
-      .sort((left, right) => left.ply - right.ply);
+    const decisions = this.decisions();
 
     return game.finished === undefined
       ? {
@@ -171,14 +262,61 @@ export class GameDurableObject extends DurableObject<Env> {
         };
   }
 
-  private storedGame(method: string): StoredGame {
+  private loadStoredGame(): StoredGame | undefined {
     const pairing = this.ctx.storage.kv.get<Pairing>("pairing");
     const config = this.ctx.storage.kv.get<SeasonConfig>("config");
     const game = this.ctx.storage.kv.get<PersistedGame>("game");
-    if (pairing === undefined || config === undefined || game === undefined) {
+    return pairing === undefined || config === undefined || game === undefined
+      ? undefined
+      : { pairing, config, game };
+  }
+
+  private storedGame(method: string): StoredGame {
+    const stored = this.loadStoredGame();
+    if (stored === undefined) {
       violation(method, "game has not been started");
     }
-    return { pairing, config, game };
+    return stored;
+  }
+
+  private decisions(): readonly DecisionRecord[] {
+    return [
+      ...this.ctx.storage.kv.list<DecisionRecord>({
+        prefix: DECISION_PREFIX,
+      }),
+    ]
+      .map((entry) => entry[1])
+      .sort((left, right) => left.ply - right.ply);
+  }
+
+  private async scheduleAlarm(delayMs: number): Promise<void> {
+    await this.ctx.storage.setAlarm(
+      performance.timeOrigin + createSystemClock().now() + delayMs,
+    );
+  }
+
+  private async runAlarm(): Promise<void> {
+    try {
+      await this.advanceOnePly();
+      this.ctx.storage.kv.delete(ALARM_FAILURE_COUNT);
+    } catch (error) {
+      const failureCount =
+        (this.ctx.storage.kv.get<number>(ALARM_FAILURE_COUNT) ?? 0) + 1;
+      this.ctx.storage.kv.put(ALARM_FAILURE_COUNT, failureCount);
+      const retryDelayMs = Math.min(
+        ALARM_DELAY_MS * 2 ** Math.min(failureCount - 1, 10),
+        MAX_ALARM_RETRY_DELAY_MS,
+      );
+      await this.scheduleAlarm(retryDelayMs);
+      const pairing = this.ctx.storage.kv.get<Pairing>("pairing");
+      console.error({
+        event: "game-alarm-failed",
+        ...(pairing === undefined ? {} : { gameId: pairing.gameId }),
+        failureCount,
+        retryDelayMs,
+        error,
+      });
+    }
   }
 
   private async advanceOnePly(): Promise<void> {
@@ -205,80 +343,61 @@ export class GameDurableObject extends DurableObject<Env> {
 
     const clock = createSystemClock();
     const startedAt = clock.now();
-    const response = await fetch(this.env.TYPESAFE_BASE_URL, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(this.env.TYPESAFE_API_KEY
-          ? { authorization: `Bearer ${this.env.TYPESAFE_API_KEY}` }
-          : {}),
-      },
-      body: JSON.stringify(buildLlmRequest(input)),
-    });
-    const providerValue: unknown = await response.json();
-    if (!isObject(providerValue)) {
-      violation("alarm", "provider response must be an object");
-    }
-    let tokens: TokenUsage | undefined;
-    if (providerValue.tokens !== undefined) {
-      if (
-        !isObject(providerValue.tokens) ||
-        typeof providerValue.tokens.in !== "number" ||
-        !Number.isFinite(providerValue.tokens.in) ||
-        typeof providerValue.tokens.out !== "number" ||
-        !Number.isFinite(providerValue.tokens.out)
-      ) {
-        violation(
-          "alarm",
-          "provider tokens must contain finite in and out counts",
-        );
-      }
-      tokens = {
-        in: providerValue.tokens.in,
-        out: providerValue.tokens.out,
-      };
-    }
-
-    let providerResponse: ChatResponse | ProviderFailure;
-    if (providerValue.kind === "chat" && typeof providerValue.text === "string") {
-      providerResponse =
-        tokens === undefined
-          ? { kind: "chat", text: providerValue.text }
-          : { kind: "chat", text: providerValue.text, tokens };
-    } else if (
-      providerValue.kind === "error" &&
-      typeof providerValue.message === "string" &&
-      (providerValue.status === undefined ||
-        (typeof providerValue.status === "number" &&
-          Number.isFinite(providerValue.status)))
-    ) {
-      providerResponse = {
-        kind: "error",
-        message: providerValue.message,
-        ...(providerValue.status === undefined
-          ? {}
-          : { status: providerValue.status }),
-      };
-    } else {
-      violation("alarm", "provider response must be chat or error");
+    const signal = AbortSignal.timeout(manifest.budget.maxMs);
+    let providerValue: unknown = null;
+    try {
+      const response = await fetch(this.env.TYPESAFE_BASE_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(this.env.TYPESAFE_API_KEY
+            ? { authorization: `Bearer ${this.env.TYPESAFE_API_KEY}` }
+            : {}),
+        },
+        body: JSON.stringify(buildLlmRequest(input)),
+        signal,
+      });
+      providerValue = await response.json();
+    } catch (error) {
+      if (!signal.aborted) throw error;
     }
 
     const latencyMs = clock.now() - startedAt;
-    const parsed = parseLlmResponse(input, providerResponse, latencyMs);
-    const decision = parsed.ok
-      ? parsed.decision
-      : applyFallback(
-          input,
-          parsed.reason,
-          createRng(
-            `${stored.config.seed}:${idempotencyKey(
-              stored.pairing.gameId,
-              stored.game.position.ply,
-              manifest.version,
-            )}`,
-          ),
-          latencyMs,
-        );
+    let decision: MoveDecision;
+    if (signal.aborted || latencyMs > manifest.budget.maxMs) {
+      decision = applyFallback(
+        input,
+        "timeout",
+        createRng(
+          `${stored.config.seed}:${idempotencyKey(
+            stored.pairing.gameId,
+            stored.game.position.ply,
+            manifest.version,
+          )}`,
+        ),
+        latencyMs,
+      );
+    } else {
+      const parsed = parseLlmResponse(
+        input,
+        parseProviderResponse(providerValue),
+        latencyMs,
+      );
+      decision = parsed.ok
+        ? parsed.decision
+        : applyFallback(
+            input,
+            parsed.reason,
+            createRng(
+              `${stored.config.seed}:${idempotencyKey(
+                stored.pairing.gameId,
+                stored.game.position.ply,
+                manifest.version,
+              )}`,
+            ),
+            latencyMs,
+          );
+    }
 
     const nextPosition = applyMove(stored.game.position, decision.move);
     const finished = terminalState(nextPosition, stored.config.maxPlies);
@@ -333,27 +452,14 @@ export class GameDurableObject extends DurableObject<Env> {
     if (!committed) return;
 
     if (finished === undefined) {
-      await this.ctx.storage.setAlarm(
-        performance.timeOrigin + createSystemClock().now() + ALARM_DELAY_MS,
-      );
+      await this.scheduleAlarm(ALARM_DELAY_MS);
     } else {
       await this.ctx.storage.deleteAlarm();
     }
 
-    const moveEvent: MoveEvent = {
-      type: "move",
-      gameId: stored.pairing.gameId,
-      ply: nextPosition.ply,
-      move: decision.move,
-      fen: nextPosition.fen,
-      competitor,
-      strategy: decision.strategy,
-      ...(decision.confidence === undefined
-        ? {}
-        : { confidence: decision.confidence }),
-      latencyMs: decision.latencyMs,
-    };
-    this.broadcast(moveEvent);
+    const committedMoveEvent = moveEvent(record, nextPosition.fen);
+    this.broadcast(committedMoveEvent);
+
     if (finished !== undefined) {
       const resultEvent: ResultEvent = {
         type: "result",

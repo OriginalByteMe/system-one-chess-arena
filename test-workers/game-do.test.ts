@@ -73,11 +73,14 @@ function gameNamespace(): DurableObjectNamespace<GameDurableObject> {
   return arenaEnv.GAME as DurableObjectNamespace<GameDurableObject>;
 }
 
-function configFor(opening: Opening): SeasonConfig {
+function configFor(opening: Opening, budgetMaxMs = 1_000): SeasonConfig {
   return {
     seasonId: "season-workers-contract",
     seed: "workers-contract-seed",
-    competitors: [WHITE_MANIFEST, BLACK_MANIFEST],
+    competitors: [
+      { ...WHITE_MANIFEST, budget: { maxMs: budgetMaxMs } },
+      { ...BLACK_MANIFEST, budget: { maxMs: budgetMaxMs } },
+    ],
     openings: [opening],
     roundsPerPair: 1,
     maxPlies: 80,
@@ -96,12 +99,13 @@ function pairingFor(gameId: string, opening: Opening): Pairing {
 async function startGame(
   gameId: string,
   opening: Opening = START_OPENING,
+  budgetMaxMs = 1_000,
 ): Promise<DurableObjectStub<GameDurableObject>> {
   const namespace = gameNamespace();
   const id = namespace.idFromName(gameId);
   const stub = namespace.get(id);
   await runInDurableObject(stub, (instance: GameDurableObject) =>
-    instance.start(pairingFor(gameId, opening), configFor(opening)),
+    instance.start(pairingFor(gameId, opening), configFor(opening, budgetMaxMs)),
   );
   return stub;
 }
@@ -139,9 +143,11 @@ function mockProviderMoves(moves: readonly string[]) {
 
 async function openSpectator(
   stub: DurableObjectStub<GameDurableObject>,
+  cursor?: number,
 ): Promise<WebSocket> {
+  const query = cursor === undefined ? "" : `?cursor=${cursor}`;
   const response = await stub.fetch(
-    new Request("https://arena.test/spectate", {
+    new Request(`https://arena.test/spectate${query}`, {
       headers: { Upgrade: "websocket" },
     }),
   );
@@ -240,6 +246,20 @@ describe("GameDurableObject", () => {
     expect(ids[0]?.equals(id)).toBe(true);
   });
 
+  test("an unstarted game refuses a spectator upgrade", async () => {
+    const namespace = gameNamespace();
+    const stub = namespace.get(namespace.idFromName("game-not-started"));
+
+    const response = await stub.fetch(
+      new Request("https://arena.test/spectate", {
+        headers: { Upgrade: "websocket" },
+      }),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.webSocket).toBeNull();
+  });
+
   test("one alarm advances exactly one ply and schedules the next", async () => {
     mockProviderMoves(["e2e4"]);
     const stub = await startGame("game-one-ply");
@@ -286,24 +306,36 @@ describe("GameDurableObject", () => {
     ).toEqual([{ ply: 0, move: "e2e4", version: "alpha-v1" }]);
   });
 
-  test("a provider failure leaves the snapshot unchanged and its retry commits exactly one move", async () => {
+  test("a provider failure leaves the snapshot unchanged and a rescheduled alarm retries it", async () => {
     const providerSpy = vi
       .spyOn(globalThis, "fetch")
       .mockImplementationOnce(() =>
         Promise.reject(new Error("provider unavailable before commit")),
       )
       .mockImplementation(() => Promise.resolve(providerResponse("e2e4")));
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const stub = await startGame("game-provider-retry");
     const before = await snapshot(stub);
 
-    await expect(runDurableObjectAlarm(stub)).rejects.toThrow(
-      "provider unavailable before commit",
-    );
+    await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
     expect(await snapshot(stub)).toEqual(before);
-
-    await runInDurableObject(stub, (instance: GameDurableObject) =>
-      instance.alarm(),
+    const retryAlarm = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.getAlarm(),
     );
+    expect(typeof retryAlarm).toBe("number");
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "game-alarm-failed",
+        gameId: "game-provider-retry",
+        failureCount: 1,
+        retryDelayMs: 1_000,
+        error: expect.objectContaining({
+          message: "provider unavailable before commit",
+        }),
+      }),
+    );
+
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
     const retried = await snapshot(stub);
     expect(providerSpy).toHaveBeenCalledTimes(2);
     expect({
@@ -313,12 +345,44 @@ describe("GameDurableObject", () => {
     }).toEqual({ fen: AFTER_E4_FEN, ply: 1, moves: ["e2e4"] });
   });
 
+  test("an over-budget provider call aborts and commits the timeout fallback", async () => {
+    const providerSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((_input, init) => {
+        const signal = init?.signal;
+        if (signal === undefined || signal === null) {
+          return Promise.reject(new Error("provider request has no abort signal"));
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const abort = (): void => reject(signal.reason);
+          if (signal.aborted) {
+            abort();
+          } else {
+            signal.addEventListener("abort", abort, { once: true });
+          }
+        });
+      });
+    const stub = await startGame("game-provider-timeout", START_OPENING, 5);
+
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+
+    const committed = await snapshot(stub);
+    expect(providerSpy).toHaveBeenCalledTimes(1);
+    expect({
+      ply: committed.ply,
+      fallback: committed.decisions[0]?.fallback,
+    }).toEqual({ ply: 1, fallback: "timeout" });
+  });
+
   test("fen, ply, and decisions survive eviction and reload through a fresh stub", async () => {
     mockProviderMoves(["e2e4"]);
     const namespace = gameNamespace();
     const id = namespace.idFromName("game-eviction");
     const stub = await startGame("game-eviction");
     await runDurableObjectAlarm(stub);
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.deleteAlarm();
+    });
     await evictDurableObject(stub);
 
     const freshStub = namespace.get(id);
@@ -386,11 +450,10 @@ describe("GameDurableObject", () => {
     );
     expect([afterFirstCommit.ply, afterSecondCommit.ply]).toEqual([1, 2]);
 
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.useFakeTimers();
     const rolledBackMessage = receivesMessageWithin(socket, 25);
-    await expect(runDurableObjectAlarm(stub)).rejects.toThrow(
-      "provider failed before third commit",
-    );
+    await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
     await vi.advanceTimersByTimeAsync(25);
     expect(await rolledBackMessage).toBe(false);
     vi.useRealTimers();
@@ -404,6 +467,31 @@ describe("GameDurableObject", () => {
       ply: 2,
       moves: ["e2e4", "e7e5"],
     });
+
+    socket.close(1000, "test complete");
+  });
+
+  test("a late spectator replays only committed moves after its cursor", async () => {
+    mockProviderMoves(["e2e4", "e7e5"]);
+    const gameId = "game-spectator-resume";
+    const stub = await startGame(gameId);
+    await runDurableObjectAlarm(stub);
+    await runDurableObjectAlarm(stub);
+    const current = await snapshot(stub);
+
+    const socket = await openSpectator(stub, 1);
+    const replayed = await nextSocketMessage(socket);
+
+    expect(replayed).toEqual(
+      expect.objectContaining({
+        type: "move",
+        gameId,
+        ply: 2,
+        move: "e7e5",
+        fen: current.fen,
+        competitor: { name: "beta", version: "beta-v1" },
+      }),
+    );
 
     socket.close(1000, "test complete");
   });
@@ -445,4 +533,33 @@ describe("GameDurableObject", () => {
 
     socket.close(1000, "test complete");
   });
+
+  test("a late spectator receives the terminal move followed by the result", async () => {
+    mockProviderMoves(["f7g7"]);
+    const gameId = "game-terminal-replay";
+    const stub = await startGame(gameId, MATE_IN_ONE_OPENING);
+    await runDurableObjectAlarm(stub);
+
+    const socket = await openSpectator(stub);
+    const messages = await collectSocketMessages(socket, 2);
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        type: "move",
+        gameId,
+        ply: 1,
+        move: "f7g7",
+      }),
+      {
+        type: "result",
+        gameId,
+        ply: 1,
+        result: "white",
+        reason: "checkmate",
+      },
+    ]);
+
+    socket.close(1000, "test complete");
+  });
 });
+

@@ -1,6 +1,6 @@
-import { Chess, type Move } from "chess.js";
 import { validateDistribution } from "./distribution.ts";
 import { ContractViolation } from "./errors.ts";
+import { chooseGreedyMove } from "./greedy.ts";
 import type {
   FallbackReason,
   MoveDecision,
@@ -11,14 +11,6 @@ import type {
 } from "./types.ts";
 
 const UCI_PATTERN = /^[a-h][1-8][a-h][1-8](?:[qrbn])?$/;
-const CAPTURE_VALUES: Readonly<Record<string, number>> = {
-  p: 1,
-  n: 3,
-  b: 3,
-  r: 5,
-  q: 9,
-  k: 0,
-};
 
 function rejected(
   reason: FallbackReason,
@@ -94,32 +86,7 @@ export function applyFallback(
   if (input.persona.fallback === "random-legal") {
     move = rng.pick(input.legalMoves);
   } else if (input.persona.fallback === "greedy") {
-    let chessMoves: Move[];
-    try {
-      chessMoves = new Chess(input.fen).moves({ verbose: true });
-    } catch {
-      violation(`invalid FEN: ${input.fen}`);
-    }
-
-    let bestValue = -1;
-    for (const candidate of input.legalMoves) {
-      const chessMove = chessMoves.find(
-        (available) =>
-          `${available.from}${available.to}${available.promotion ?? ""}` ===
-          candidate,
-      );
-      if (chessMove === undefined) {
-        violation(`declared legal move is not legal in FEN: ${candidate}`);
-      }
-      const value =
-        chessMove.captured === undefined
-          ? 0
-          : (CAPTURE_VALUES[chessMove.captured] ?? 0);
-      if (value > bestValue) {
-        bestValue = value;
-        move = candidate;
-      }
-    }
+    move = chooseGreedyMove(input.fen, input.legalMoves, rng);
   }
 
   return { move, strategy, latencyMs, fallback: reason };

@@ -132,6 +132,36 @@ describe("parseLlmResponse", () => {
     );
   });
 
+  test("rejects a distribution containing a __proto__ key", () => {
+    expectFailure(
+      parseLlmResponse(
+        input(),
+        {
+          kind: "chat",
+          text:
+            '{"move":"e2e4","strategy":"direct","distribution":{"e2e4":1,"__proto__":7}}',
+        },
+        18,
+      ),
+      "malformed-distribution",
+    );
+  });
+
+  test("rejects negative token counts as malformed-response", () => {
+    expectFailure(
+      parseLlmResponse(
+        input(),
+        {
+          kind: "chat",
+          text: '{"move":"e2e4","strategy":"direct"}',
+          tokens: { in: -1, out: 12 },
+        },
+        18,
+      ),
+      "malformed-response",
+    );
+  });
+
   test("classifies HTTP 429 as provider-error", () => {
     expectFailure(
       parseLlmResponse(input(), loadTranscript("error-429"), 18),

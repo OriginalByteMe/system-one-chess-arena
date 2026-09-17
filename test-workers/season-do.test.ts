@@ -65,6 +65,11 @@ const CONFIG: SeasonConfig = {
   maxPlies: 20,
 };
 
+const DIFFERENT_CONFIG: SeasonConfig = {
+  ...CONFIG,
+  roundsPerPair: 2,
+};
+
 const PROJECTION_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY (season_id, competitor, version))",
   "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, plies INTEGER NOT NULL, pgn TEXT NOT NULL, PRIMARY KEY (season_id, game_id))",
@@ -273,6 +278,64 @@ describe("SeasonDurableObject", () => {
       { white: "alpha", black: "beta", openingId: "season-mate-in-one" },
       { white: "beta", black: "alpha", openingId: "season-mate-in-one" },
     ]);
+  });
+
+  test("a repeated start with the same config is a no-op", async () => {
+    const season = await startSeason("season-repeat-same-config");
+    const [game] = await gameStubs();
+    if (game === undefined) throw new Error("season created no games");
+    const canaryPairing: Pairing = {
+      ...(await storedPairing(game)),
+      openingId: "same-config-no-op-canary",
+    };
+    await runInDurableObject(game, (_instance, state) =>
+      state.storage.put("pairing", canaryPairing),
+    );
+
+    await runInDurableObject(season, (instance: SeasonDurableObject) =>
+      instance.start(CONFIG),
+    );
+
+    expect(await storedPairing(game)).toEqual(canaryPairing);
+  });
+
+  test("a concurrent start with a different config is rejected and preserves the first season", async () => {
+    const namespace = seasonNamespace();
+    const stub = namespace.get(
+      namespace.idFromName("season-concurrent-different-config"),
+    );
+
+    await runInDurableObject(stub, async (instance: SeasonDurableObject) => {
+      const firstStart = instance.start(CONFIG);
+      const secondStart = instance.start(DIFFERENT_CONFIG);
+      await Promise.all([
+        expect(firstStart).resolves.toBeUndefined(),
+        expect(secondStart).rejects.toThrow(
+          "season has already been started with another config",
+        ),
+      ]);
+    });
+
+    const stored = await runInDurableObject(
+      stub,
+      async (_instance, state) => ({
+        config: await state.storage.get<SeasonConfig>("config"),
+        pairings: await state.storage.get<readonly Pairing[]>("pairings"),
+      }),
+    );
+    expect(stored.config).toEqual(CONFIG);
+    expect(stored.pairings).toHaveLength(2);
+
+    const games = await gameStubs();
+    expect(games).toHaveLength(2);
+    const gameConfigs = await Promise.all(
+      games.map((game) =>
+        runInDurableObject(game, (_instance, state) =>
+          state.storage.get<SeasonConfig>("config"),
+        ),
+      ),
+    );
+    expect(gameConfigs).toEqual([CONFIG, CONFIG]);
   });
 
   test("standings before completion include the finished game and exclude the unfinished game", async () => {

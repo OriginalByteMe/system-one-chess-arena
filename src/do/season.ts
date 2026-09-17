@@ -129,15 +129,16 @@ export class SeasonDurableObject extends DurableObject<Env> {
     }
 
     const pairings = buildPairings(config, createRng(config.seed));
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.kv.put(CONFIG_KEY, config);
+      this.ctx.storage.kv.put(PAIRINGS_KEY, pairings);
+    });
+
     await Promise.all(
       pairings.map((pairing) =>
         this.gameStub(pairing.gameId).start(pairing, config),
       ),
     );
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.kv.put(CONFIG_KEY, config);
-      this.ctx.storage.kv.put(PAIRINGS_KEY, pairings);
-    });
   }
 
   async alarm(): Promise<void> {

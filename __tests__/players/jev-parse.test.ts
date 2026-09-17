@@ -64,6 +64,16 @@ function splitHierarchical(response: ProviderResponse): readonly SystemOneRespon
   ];
 }
 
+function withTokens(
+  response: ProviderResponse,
+  tokens: { readonly in: number; readonly out: number },
+): SystemOneResponse {
+  if (response.kind !== "systemone") {
+    throw new Error(`expected a systemone response, received ${response.kind}`);
+  }
+  return { ...response, tokens };
+}
+
 describe("parseJevResponses", () => {
   test("maps a healthy flat answer into a move decision", () => {
     const result = parseJevResponses(
@@ -103,6 +113,57 @@ describe("parseJevResponses", () => {
       g1f3: 0.5,
     });
     expect(result.decision.latencyMs).toBe(57);
+  });
+
+  test("aggregates tokens only when every hierarchical response reports usage", () => {
+    const [strategy, move] = splitHierarchical(
+      loadTranscript("jev-hierarchical-ok"),
+    );
+    if (strategy === undefined || move === undefined) {
+      throw new Error("expected strategy and move responses");
+    }
+
+    const complete = parseJevResponses(
+      input(JEV_HIERARCHICAL_MANIFEST),
+      [
+        withTokens(strategy, { in: 100, out: 10 }),
+        withTokens(move, { in: 200, out: 20 }),
+      ],
+      57,
+    );
+    if (!complete.ok) {
+      throw new Error(`expected a valid hierarchical decision: ${complete.reason}`);
+    }
+    expect(complete.decision.tokens).toEqual({ in: 300, out: 30 });
+
+    const partial = parseJevResponses(
+      input(JEV_HIERARCHICAL_MANIFEST),
+      [withTokens(strategy, { in: 100, out: 10 }), move],
+      57,
+    );
+    if (!partial.ok) {
+      throw new Error(`expected a valid hierarchical decision: ${partial.reason}`);
+    }
+    expect(partial.decision.tokens).toBeUndefined();
+  });
+
+  test("rejects negative token usage as a malformed response", () => {
+    expectFailure(
+      parseJevResponses(
+        input(JEV_FLAT_MANIFEST),
+        [withTokens(loadTranscript("jev-flat-ok"), { in: -1, out: 32 })],
+        42,
+      ),
+      "malformed-response",
+    );
+    expectFailure(
+      parseJevResponses(
+        input(JEV_FLAT_MANIFEST),
+        [withTokens(loadTranscript("jev-flat-ok"), { in: 184, out: -1 })],
+        42,
+      ),
+      "malformed-response",
+    );
   });
 
   test("classifies a move outside the legal list as illegal-output", () => {

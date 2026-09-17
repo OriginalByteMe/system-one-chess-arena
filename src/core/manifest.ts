@@ -25,6 +25,7 @@ const MANIFEST_KEYS = [
 
 const BUDGET_KEYS = ["maxMs", "maxCostUsd"] as const;
 const FALLBACK_POLICIES = ["random-legal", "greedy", "first-legal"] as const;
+const COMPETITOR_NAME_PATTERN = /^[A-Za-z0-9._:@-]+$/;
 
 
 function hasOnlyKeys(
@@ -107,14 +108,16 @@ export function parseManifest(raw: unknown): CompetitorManifest {
 
   if (
     typeof name !== "string" ||
+    !COMPETITOR_NAME_PATTERN.test(name) ||
     typeof model !== "string" ||
     typeof playstyle !== "string" ||
     !Array.isArray(strategies) ||
+    strategies.length === 0 ||
     !strategies.every(isStrategyLabel) ||
     !Array.isArray(features) ||
     !features.every(isFeatureKey) ||
     typeof historyPlies !== "number" ||
-    !Number.isFinite(historyPlies) ||
+    !Number.isInteger(historyPlies) ||
     historyPlies < 0 ||
     !isFallbackPolicy(fallback) ||
     typeof hierarchical !== "boolean" ||
@@ -137,8 +140,11 @@ export function parseManifest(raw: unknown): CompetitorManifest {
   if (
     typeof maxMs !== "number" ||
     !Number.isFinite(maxMs) ||
+    maxMs <= 0 ||
     (maxCostUsd !== undefined &&
-      (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd)))
+      (typeof maxCostUsd !== "number" ||
+        !Number.isFinite(maxCostUsd) ||
+        maxCostUsd < 0))
   ) {
     return violation("budget contains an invalid field");
   }

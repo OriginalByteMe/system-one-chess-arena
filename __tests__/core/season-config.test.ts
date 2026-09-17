@@ -115,6 +115,59 @@ describe("parseSeasonConfig", () => {
     });
   });
 
+  test("rejects duplicate competitor identities", () => {
+    const competitor = CONFIG.competitors[0]!;
+    expectContractViolation({
+      ...validRaw(),
+      competitors: [competitor, { ...competitor }],
+    });
+  });
+
+  test("rejects duplicate opening ids", () => {
+    expectContractViolation({
+      ...validRaw(),
+      openings: [OPENING, { ...OPENING, name: "Duplicate id" }],
+    });
+  });
+
+  test("rejects opening moves that do not reach the declared FEN", () => {
+    expectContractViolation({
+      ...validRaw(),
+      openings: [{ ...OPENING, moves: ["e4"] }],
+    });
+  });
+
+  test("rejects an invalid opening FEN", () => {
+    expectContractViolation({
+      ...validRaw(),
+      openings: [{ ...OPENING, fen: "not-a-fen" }],
+    });
+  });
+
+  test("rejects more than 32 competitors", () => {
+    const competitors = Array.from({ length: 33 }, (_, index) =>
+      buildManifest({ ...MANIFEST_FIELDS, name: `player-${index}` }),
+    );
+
+    expectContractViolation({ ...validRaw(), competitors });
+  });
+
+  test("rejects more than 16 openings", () => {
+    const openings = Array.from({ length: 17 }, (_, index) => ({
+      ...OPENING,
+      id: `opening-${index}`,
+    }));
+
+    expectContractViolation({ ...validRaw(), openings });
+  });
+
+  test.each([
+    ["roundsPerPair", 9],
+    ["maxPlies", 1_001],
+  ])("rejects %s above its configured cap", (field, value) => {
+    expectContractViolation({ ...validRaw(), [field]: value });
+  });
+
   test("rejects an extra config field", () => {
     expectContractViolation({ ...validRaw(), unexpected: true });
   });

@@ -62,8 +62,10 @@ function isTokenUsage(value: unknown): value is TokenUsage {
     isRecord(value) &&
     typeof value.in === "number" &&
     Number.isFinite(value.in) &&
+    value.in >= 0 &&
     typeof value.out === "number" &&
-    Number.isFinite(value.out)
+    Number.isFinite(value.out) &&
+    value.out >= 0
   );
 }
 
@@ -136,14 +138,18 @@ function moveChunks(legalMoves: readonly string[]): readonly (readonly string[])
   return chunks;
 }
 
-function addTokens(
-  total: { in: number; out: number },
-  usage: TokenUsage | undefined,
-): void {
-  if (usage !== undefined) {
-    total.in += usage.in;
-    total.out += usage.out;
+function aggregateTokens(
+  responses: readonly ParsedResponse[],
+): TokenUsage | undefined {
+  const total = { in: 0, out: 0 };
+  for (const response of responses) {
+    if (response.tokens === undefined) {
+      return undefined;
+    }
+    total.in += response.tokens.in;
+    total.out += response.tokens.out;
   }
+  return total;
 }
 
 export function createJevPlayer(
@@ -236,8 +242,7 @@ export function parseJevResponses(
 
   let strategy = input.persona.strategies[0];
   let responseOffset = 0;
-  const tokens = { in: 0, out: 0 };
-  let hasTokens = false;
+  const tokens = aggregateTokens(parsed);
 
   if (input.persona.hierarchical) {
     const strategyResponse = parsed[0];
@@ -265,8 +270,6 @@ export function parseJevResponses(
     }
     strategy = declaredStrategy;
     responseOffset = 1;
-    addTokens(tokens, strategyResponse?.tokens);
-    hasTokens = strategyResponse?.tokens !== undefined;
   }
 
   if (strategy === undefined) {
@@ -301,8 +304,6 @@ export function parseJevResponses(
     ) {
       selectedAnswer = moveAnswer;
     }
-    addTokens(tokens, moveResponse?.tokens);
-    hasTokens ||= moveResponse?.tokens !== undefined;
   }
 
   if (selectedAnswer === undefined) {
@@ -316,6 +317,6 @@ export function parseJevResponses(
     confidence: selectedAnswer.confidence,
     distribution,
     latencyMs,
-    ...(hasTokens ? { tokens } : {}),
+    ...(tokens === undefined ? {} : { tokens }),
   });
 }

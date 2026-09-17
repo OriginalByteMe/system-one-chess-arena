@@ -1,4 +1,5 @@
 import { ContractViolation } from "../core/errors.ts";
+import { chooseGreedyMove } from "../core/greedy.ts";
 import type {
   Clock,
   Competitor,
@@ -8,7 +9,6 @@ import type {
   StrategyLabel,
   Uci,
 } from "../core/types.ts";
-import { chooseGreedyMove } from "./greedy.ts";
 
 function scriptedStrategy(
   input: PositionInput,

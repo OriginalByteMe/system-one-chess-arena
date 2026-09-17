@@ -17,7 +17,8 @@ const COMPLETE_SEASON =
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const { pathname } = new URL(request.url);
+    const url = new URL(request.url);
+    const { pathname } = url;
     if (pathname === "/api/health") {
       return Response.json({ ok: true, phase: 0 });
     }
@@ -80,7 +81,9 @@ export default {
         return new Response("Not found", { status: 404 });
       }
       const game = env.GAME.get(env.GAME.idFromName(gameId));
-      return game.fetch(new URL("/spectate", request.url), request);
+      const spectateUrl = new URL("/spectate", url);
+      spectateUrl.search = url.search;
+      return game.fetch(spectateUrl, request);
     }
     return new Response("Not found", { status: 404 });
   },

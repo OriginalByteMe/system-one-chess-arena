@@ -10,8 +10,25 @@ import type {
   ProviderResponse,
   RawDecision,
   Rng,
+  TokenUsage,
   ValidationResult,
 } from "../core/types.ts";
+
+function isTokenUsage(value: unknown): value is TokenUsage {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const inputTokens: unknown = Reflect.get(value, "in");
+  const outputTokens: unknown = Reflect.get(value, "out");
+  return (
+    typeof inputTokens === "number" &&
+    Number.isFinite(inputTokens) &&
+    inputTokens >= 0 &&
+    typeof outputTokens === "number" &&
+    Number.isFinite(outputTokens) &&
+    outputTokens >= 0
+  );
+}
 
 function malformed(detail: string): ValidationResult {
   return { ok: false, reason: "malformed-response", detail };
@@ -167,7 +184,7 @@ export function parseLlmResponse(
     ) {
       return malformed("distribution must be an object");
     }
-    const probabilities: Record<string, number> = {};
+    const probabilities: Record<string, number> = Object.create(null);
     for (const candidate of Object.keys(distributionValue)) {
       const probability: unknown = Reflect.get(distributionValue, candidate);
       if (typeof probability !== "number" || !Number.isFinite(probability)) {
@@ -178,6 +195,10 @@ export function parseLlmResponse(
       probabilities[candidate] = probability;
     }
     distribution = probabilities;
+  }
+
+  if (response.tokens !== undefined && !isTokenUsage(response.tokens)) {
+    return malformed("response contained invalid token usage");
   }
 
   const raw: RawDecision = {

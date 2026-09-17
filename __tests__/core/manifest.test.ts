@@ -160,8 +160,19 @@ describe("parseManifest", () => {
     expectContractViolation(raw);
   });
 
+  test.each(["", "player one", "player/one"])(
+    "rejects a name that cannot be embedded in a game ID: %p",
+    (name) => {
+      expectContractViolation({ ...validRaw(), name });
+    },
+  );
+
   test("rejects strategies that are not an array", () => {
     expectContractViolation({ ...validRaw(), strategies: "attack" });
+  });
+
+  test("rejects an empty strategies array", () => {
+    expectContractViolation({ ...validRaw(), strategies: [] });
   });
 
   test("rejects an unknown strategy label", () => {
@@ -182,6 +193,10 @@ describe("parseManifest", () => {
     expectContractViolation({ ...validRaw(), historyPlies: -1 });
   });
 
+  test("rejects fractional historyPlies", () => {
+    expectContractViolation({ ...validRaw(), historyPlies: 0.1 });
+  });
+
   test("rejects an unknown fallback value", () => {
     expectContractViolation({ ...validRaw(), fallback: "resign" });
   });
@@ -191,6 +206,31 @@ describe("parseManifest", () => {
       ...validRaw(),
       budget: { maxCostUsd: 0.02 },
     });
+  });
+
+  test.each([0, -1])("rejects budget.maxMs %p", (maxMs) => {
+    expectContractViolation({
+      ...validRaw(),
+      budget: { maxMs, maxCostUsd: 0.02 },
+    });
+  });
+
+  test("rejects negative budget.maxCostUsd", () => {
+    expectContractViolation({
+      ...validRaw(),
+      budget: { maxMs: 750, maxCostUsd: -0.01 },
+    });
+  });
+
+  test("accepts zero historyPlies and budget.maxCostUsd", () => {
+    const fields: ManifestFields = {
+      ...BASE_FIELDS,
+      historyPlies: 0,
+      budget: { maxMs: 750, maxCostUsd: 0 },
+    };
+    const manifest = buildManifest(fields);
+
+    expect(parseManifest(manifest)).toEqual(manifest);
   });
 
   test("rejects a version that disagrees with the fields", () => {

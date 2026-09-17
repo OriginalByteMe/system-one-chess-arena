@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { legalMoves, positionFromFen } from "../../src/core/rules.ts";
 import {
   applyFallback,
   validateDecision,
@@ -17,6 +18,7 @@ import {
   RANDOM_MANIFEST,
   SCRIPTED_MANIFEST,
 } from "../fixtures/manifests.ts";
+import { positionFixture } from "../fixtures/positions.ts";
 
 const START_FEN = "rn1qkbnr/pppbpppp/8/3p4/3P4/5N2/PPP1PPPP/RNBQKB1R w KQkq - 2 3";
 
@@ -232,6 +234,24 @@ describe("applyFallback", () => {
       latencyMs: 37,
       fallback: "malformed-response",
     });
+  });
+
+  test("greedy prefers a queen promotion over a capture-free move", () => {
+    const fixture = positionFixture("promotion-choice");
+    const input = positionInput(
+      GREEDY_MANIFEST,
+      fixture.fen,
+      legalMoves(positionFromFen(fixture.fen)),
+    );
+
+    const decision = applyFallback(
+      input,
+      "malformed-response",
+      seededRng(13),
+      22,
+    );
+
+    expect(decision.move).toBe("a7a8q");
   });
 
   test("random-legal is seed-reproducible and always returns a legal move", () => {

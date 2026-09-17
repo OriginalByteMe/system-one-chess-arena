@@ -47,8 +47,11 @@ function assertValidDecision(
   }
 
   if (decision.distribution !== undefined) {
-    for (const move of Object.keys(decision.distribution)) {
+    for (const [move, probability] of Object.entries(decision.distribution)) {
       expect(input.legalMoves).toContain(move);
+      expect(Number.isFinite(probability)).toBe(true);
+      expect(probability).toBeGreaterThanOrEqual(0);
+      expect(probability).toBeLessThanOrEqual(1);
     }
     const total = Object.values(decision.distribution).reduce(
       (sum, probability) => sum + probability,

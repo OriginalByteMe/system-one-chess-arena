@@ -1,5 +1,6 @@
 import { ContractViolation } from "./errors.ts";
 import { parseManifest } from "./manifest.ts";
+import { positionFromOpening } from "./rules.ts";
 import type { Opening, SeasonConfig } from "./types.ts";
 
 const CONFIG_KEYS = [
@@ -11,6 +12,10 @@ const CONFIG_KEYS = [
   "maxPlies",
 ] as const;
 const OPENING_KEYS = ["id", "name", "moves", "fen"] as const;
+const MAX_COMPETITORS = 32;
+const MAX_OPENINGS = 16;
+const MAX_ROUNDS_PER_PAIR = 8;
+const MAX_PLIES = 1_000;
 
 function violation(detail: string): never {
   throw new ContractViolation("season-config.parseSeasonConfig", detail);
@@ -55,19 +60,46 @@ export function parseSeasonConfig(raw: unknown): SeasonConfig {
     typeof roundsPerPair !== "number" ||
     !Number.isSafeInteger(roundsPerPair) ||
     roundsPerPair <= 0 ||
+    roundsPerPair > MAX_ROUNDS_PER_PAIR ||
     typeof maxPlies !== "number" ||
     !Number.isSafeInteger(maxPlies) ||
-    maxPlies <= 0
+    maxPlies <= 0 ||
+    maxPlies > MAX_PLIES
   ) {
     return violation("season config contains an invalid field");
   }
-  if (!Array.isArray(competitors) || competitors.length === 0) {
-    return violation("competitors must be a non-empty array");
+  if (
+    !Array.isArray(competitors) ||
+    competitors.length === 0 ||
+    competitors.length > MAX_COMPETITORS
+  ) {
+    return violation(
+      `competitors must contain between 1 and ${MAX_COMPETITORS} entries`,
+    );
   }
-  if (!Array.isArray(openings) || openings.length === 0) {
-    return violation("openings must be a non-empty array");
+  if (
+    !Array.isArray(openings) ||
+    openings.length === 0 ||
+    openings.length > MAX_OPENINGS
+  ) {
+    return violation(
+      `openings must contain between 1 and ${MAX_OPENINGS} entries`,
+    );
   }
 
+  const parsedCompetitors = competitors.map(parseManifest);
+  const competitorIdentities = new Set<string>();
+  for (const competitor of parsedCompetitors) {
+    const identity = `${competitor.name}\0${competitor.version}`;
+    if (competitorIdentities.has(identity)) {
+      return violation(
+        `duplicate competitor identity: ${competitor.name}@${competitor.version}`,
+      );
+    }
+    competitorIdentities.add(identity);
+  }
+
+  const openingIds = new Set<string>();
   const parsedOpenings: Opening[] = [];
   for (const opening of openings) {
     if (
@@ -90,13 +122,19 @@ export function parseSeasonConfig(raw: unknown): SeasonConfig {
     ) {
       return violation("opening contains an invalid field");
     }
-    parsedOpenings.push({ id, name, moves, fen });
+    if (openingIds.has(id)) {
+      return violation(`duplicate opening id: ${id}`);
+    }
+    openingIds.add(id);
+    const parsedOpening = { id, name, moves, fen };
+    positionFromOpening(parsedOpening);
+    parsedOpenings.push(parsedOpening);
   }
 
   return {
     seasonId,
     seed,
-    competitors: competitors.map(parseManifest),
+    competitors: parsedCompetitors,
     openings: parsedOpenings,
     roundsPerPair,
     maxPlies,
