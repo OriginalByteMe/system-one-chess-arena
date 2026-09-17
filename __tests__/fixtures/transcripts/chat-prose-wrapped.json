@@ -1,0 +1,5 @@
+{
+  "kind": "chat",
+  "text": "The position calls for immediate central control.\n```json\n{\"move\":\"e2e4\",\"strategy\":\"direct\",\"confidence\":0.76,\"distribution\":{\"e2e4\":0.5,\"d2d4\":0.3,\"g1f3\":0.2}}\n```\nThat is my final answer.",
+  "tokens": { "in": 219, "out": 67 }
+}

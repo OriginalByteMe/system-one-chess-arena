@@ -1,0 +1,4 @@
+{
+  "kind": "chat",
+  "text": "{\"move\":42,\"strategy\":\"direct\",\"confidence\":0.8,\"distribution\":{\"e2e4\":1}}"
+}

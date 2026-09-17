@@ -7,12 +7,20 @@
     "plan": "bun scripts/serve-plan.ts",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "no-any": "bun scripts/no-any.ts",
+    "test": "bun test __tests__",
+    "test:workers": "vitest run",
+    "check": "bun run typecheck && bun run no-any && bun run test"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^4",
     "@types/bun": "^1.4.2",
     "typescript": "^5",
+    "vitest": "^4.1.0",
     "wrangler": "^4"
+  },
+  "dependencies": {
+    "chess.js": "^1.4.0"
   }
 }

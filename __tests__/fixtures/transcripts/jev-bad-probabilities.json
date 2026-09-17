@@ -1,0 +1,14 @@
+{
+  "kind": "systemone",
+  "answers": {
+    "move": {
+      "choice": "e2e4",
+      "probabilities": {
+        "e2e4": 0.7,
+        "d2d4": 0.5,
+        "g1f3": 0.2
+      },
+      "confidence": 0.7
+    }
+  }
+}

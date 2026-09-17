@@ -1,0 +1,24 @@
+{
+  "kind": "systemone",
+  "answers": {
+    "strategy": {
+      "choice": "attack",
+      "probabilities": {
+        "attack": 0.6,
+        "defend": 0.25,
+        "simplify": 0.15
+      },
+      "confidence": 0.72
+    },
+    "move": {
+      "choice": "g1f3",
+      "probabilities": {
+        "e2e4": 0.3,
+        "d2d4": 0.2,
+        "g1f3": 0.5
+      },
+      "confidence": 0.68
+    }
+  },
+  "tokens": { "in": 247, "out": 49 }
+}

@@ -1,0 +1,10 @@
+{
+  "kind": "systemone",
+  "answers": {
+    "move": {
+      "choice": "e7e5",
+      "probabilities": { "e7e5": 1 },
+      "confidence": 0.91
+    }
+  }
+}

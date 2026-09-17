@@ -2,9 +2,31 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "system-one-chess-arena",
   "main": "src/index.ts",
-  "compatibility_date": "2026-09-01",
+  // Must not exceed the workerd binary bundled with wrangler/miniflare, or the
+  // vitest workers pool refuses to start.
+  "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true }
-  // Durable Object (Game, Season), D1 and static-asset bindings land with
-  // their phases in PLAN.md, so this config stays deployable meanwhile.
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      { "name": "GAME", "class_name": "GameDurableObject" },
+      { "name": "SEASON", "class_name": "SeasonDurableObject" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      // SQLite-backed Durable Objects; new_classes would give the older KV storage.
+      "new_sqlite_classes": ["GameDurableObject", "SeasonDurableObject"]
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "arena",
+      // Local dev and the workers test pool only need a non-empty id.
+      // `wrangler d1 create arena` replaces this before the first deploy.
+      "database_id": "local-development-placeholder"
+    }
+  ]
 }

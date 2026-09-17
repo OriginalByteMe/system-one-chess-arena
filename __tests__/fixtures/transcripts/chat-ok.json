@@ -1,0 +1,5 @@
+{
+  "kind": "chat",
+  "text": "{\"move\":\"e2e4\",\"strategy\":\"direct\",\"confidence\":0.82,\"distribution\":{\"e2e4\":0.55,\"d2d4\":0.3,\"g1f3\":0.15}}",
+  "tokens": { "in": 211, "out": 45 }
+}

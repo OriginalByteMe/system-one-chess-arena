@@ -1,0 +1,5 @@
+{
+  "kind": "error",
+  "status": 429,
+  "message": "rate limit exceeded; retry after 2 seconds"
+}

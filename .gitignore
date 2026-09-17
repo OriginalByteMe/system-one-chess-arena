@@ -4,4 +4,5 @@ dist/
 runs/
 .dev.vars
 .env*
+!.env.example
 worker-configuration.d.ts

@@ -1,0 +1,10 @@
+{
+  "kind": "systemone",
+  "answers": {
+    "commentary": {
+      "choice": "e2e4",
+      "probabilities": { "e2e4": 1 },
+      "confidence": 0.5
+    }
+  }
+}

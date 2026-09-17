@@ -1,0 +1,22 @@
+{
+  "kind": "systemone",
+  "answers": {
+    "strategy": {
+      "choice": "king-hunt",
+      "probabilities": {
+        "king-hunt": 0.7,
+        "attack": 0.3
+      },
+      "confidence": 0.84
+    },
+    "move": {
+      "choice": "e2e4",
+      "probabilities": {
+        "e2e4": 0.6,
+        "d2d4": 0.25,
+        "g1f3": 0.15
+      },
+      "confidence": 0.66
+    }
+  }
+}
