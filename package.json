@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "no-any": "bun scripts/no-any.ts",
     "test": "bun test __tests__",
+    "season": "bun scripts/season.ts",
     "test:workers": "vitest run",
     "check": "bun run typecheck && bun run no-any && bun run test"
   },

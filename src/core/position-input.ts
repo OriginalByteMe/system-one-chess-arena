@@ -1,4 +1,5 @@
-import { NotImplemented } from "./errors.ts";
+import { computeFeatures, filterFeatures } from "./features.ts";
+import { legalMoves } from "./rules.ts";
 import type { Position } from "./rules.ts";
 import type {
   CompetitorManifest,
@@ -17,5 +18,25 @@ export interface PositionInputArgs {
 }
 
 export function buildPositionInput(args: PositionInputArgs): PositionInput {
-  throw new NotImplemented("position-input.buildPositionInput");
+  const input = {
+    seasonId: args.seasonId,
+    gameId: args.gameId,
+    ply: args.position.ply,
+    colour: args.position.turn,
+    fen: args.position.fen,
+    history: args.position.history.slice(
+      Math.max(0, args.position.history.length - args.persona.historyPlies),
+    ),
+    legalMoves: legalMoves(args.position),
+    features: filterFeatures(
+      computeFeatures(args.position, args.lastMove),
+      args.persona.features,
+    ),
+    persona: args.persona,
+    budget: args.persona.budget,
+  };
+
+  return args.record === undefined
+    ? input
+    : { ...input, record: args.record };
 }

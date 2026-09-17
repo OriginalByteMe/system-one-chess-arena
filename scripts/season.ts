@@ -1,119 +1,111 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-
-import { ContractViolation } from "../src/core/errors.ts";
-import { createSystemClock } from "../src/core/clock.ts";
-import { parseManifest } from "../src/core/manifest.ts";
-import { createRng } from "../src/core/rng.ts";
-import type { Clock, Competitor, CompetitorManifest, Rng, SeasonConfig } from "../src/core/types.ts";
-import { createGreedyPlayer } from "../src/players/greedy.ts";
-import { createRandomPlayer } from "../src/players/random.ts";
-import { createScriptedPlayer } from "../src/players/scripted.ts";
-import { OPENINGS } from "../src/season/openings.ts";
+import type {
+  Clock,
+  Competitor,
+  CompetitorManifest,
+  MoveDecision,
+  Opening,
+  PositionInput,
+  Rng,
+  SeasonConfig,
+} from "../src/core/types.ts";
 import { runSeason } from "../src/season/runner.ts";
 
-interface CliOptions {
-  readonly games: number;
-  readonly seed: string;
-  readonly seasonId: string;
-  readonly recordGolden: boolean;
-}
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-function optionValue(args: readonly string[], index: number, option: string): string {
-  const value = args[index + 1];
-  if (value === undefined || value.startsWith("--")) {
-    throw new ContractViolation("scripts/season.arguments", `${option} requires a value`);
-  }
-  return value;
-}
+const START_OPENING: Opening = {
+  id: "initial-position",
+  name: "Initial position",
+  moves: [],
+  fen: START_FEN,
+};
 
-function positiveInteger(value: string, option: string): number {
-  const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new ContractViolation("scripts/season.arguments", `${option} must be a positive integer`);
-  }
-  return parsed;
-}
-
-function parseArgs(args: readonly string[]): CliOptions {
-  let games = 1;
-  let seed = "arena";
-  let seasonId = "local";
-  let recordGolden = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index];
-    if (argument === undefined) continue;
-
-    if (argument === "--games") {
-      games = positiveInteger(optionValue(args, index, argument), argument);
-      index += 1;
-    } else if (argument === "--seed") {
-      seed = optionValue(args, index, argument);
-      index += 1;
-    } else if (argument === "--season") {
-      seasonId = optionValue(args, index, argument);
-      index += 1;
-    } else if (argument === "--record-golden") {
-      recordGolden = true;
-    } else {
-      throw new ContractViolation("scripts/season.arguments", `unknown option: ${argument}`);
-    }
-  }
-
-  return { games, seed, seasonId, recordGolden };
-}
-
-async function loadManifests(): Promise<readonly CompetitorManifest[]> {
-  const directory = new URL("../competitors/", import.meta.url);
-  const entries = await readdir(directory, { withFileTypes: true });
-  const jsonFiles = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .sort((left, right) => left.name.localeCompare(right.name));
-
-  const manifests: CompetitorManifest[] = [];
-  for (const entry of jsonFiles) {
-    const text = await readFile(new URL(entry.name, directory), "utf8");
-    const raw: unknown = JSON.parse(text);
-    manifests.push(parseManifest(raw));
-  }
-
-  if (manifests.length < 2) {
-    throw new ContractViolation("scripts/season.competitors", "at least two competitor manifests are required");
-  }
-  return manifests;
-}
-
-function createPlayer(manifest: CompetitorManifest, rng: Rng, clock: Clock): Competitor {
-  if (manifest.model === "random") return createRandomPlayer(manifest, rng, clock);
-  if (manifest.model === "greedy") return createGreedyPlayer(manifest, rng, clock);
-  if (manifest.model === "scripted") return createScriptedPlayer(manifest, rng, clock);
-  throw new ContractViolation("scripts/season.competitors", `unsupported local model: ${manifest.model}`);
-}
-
-async function main(args: readonly string[]): Promise<void> {
-  const options = parseArgs(args);
-  const manifests = await loadManifests();
-  const clock = createSystemClock();
-  const players = manifests.map((manifest) =>
-    createPlayer(manifest, createRng(`${options.seed}:${manifest.version}`), clock),
-  );
-  const config: SeasonConfig = {
-    seasonId: options.seasonId,
-    seed: options.seed,
-    competitors: manifests,
-    openings: OPENINGS,
-    roundsPerPair: options.games,
-    maxPlies: 200,
+function manifest(name: string): CompetitorManifest {
+  return {
+    name,
+    version: `${name}-v1`,
+    model: "test",
+    playstyle: "runner fixture",
+    strategies: ["direct"],
+    features: [],
+    historyPlies: 8,
+    fallback: "first-legal",
+    budget: { maxMs: 100 },
+    hierarchical: false,
   };
-  const outcome = await runSeason(config, players, createRng(options.seed), clock);
-
-  if (options.recordGolden) {
-    const directory = new URL("../__tests__/fixtures/golden/", import.meta.url);
-    await mkdir(directory, { recursive: true });
-    await writeFile(new URL("season.json", directory), `${JSON.stringify(outcome, null, 2)}\n`, "utf8");
-  } else {
-    console.log(JSON.stringify(outcome.standings, null, 2));
-  }
 }
 
-await main(Bun.argv.slice(2));
+function firstLegalPlayer(name: string): Competitor {
+  return {
+    manifest: manifest(name),
+    async decide(input: PositionInput): Promise<MoveDecision> {
+      const move = input.legalMoves[0];
+      if (move === undefined) {
+        throw new Error("runner asked a player to move in a terminal position");
+      }
+      return { move, strategy: "direct", latencyMs: 1 };
+    },
+  };
+}
+
+// Mirrors the Rng in __tests__/season/runner.test.ts, not src/core/rng.ts: the
+// golden fixture must reproduce that suite's stream exactly.
+function seededRng(seed: string): Rng {
+  let state = 2_166_136_261;
+  for (let index = 0; index < seed.length; index += 1) {
+    state = Math.imul(state ^ seed.charCodeAt(index), 16_777_619) >>> 0;
+  }
+  const next = (): number => {
+    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
+    return state / 4_294_967_296;
+  };
+  return {
+    next,
+    nextInt(boundExclusive: number): number {
+      if (!Number.isInteger(boundExclusive) || boundExclusive <= 0) {
+        throw new Error("bound must be a positive integer");
+      }
+      return Math.floor(next() * boundExclusive);
+    },
+    pick<T>(items: readonly T[]): T {
+      if (items.length === 0) throw new Error("cannot pick from an empty list");
+      const picked = items[Math.floor(next() * items.length)];
+      if (picked === undefined) throw new Error("seeded selection was out of bounds");
+      return picked;
+    },
+  };
+}
+
+const fixedClock: Clock = { now: () => 10_000 };
+
+function seasonConfig(
+  players: readonly Competitor[],
+  maxPlies: number,
+  seed: string,
+): SeasonConfig {
+  return {
+    seasonId: "runner-season",
+    seed,
+    competitors: players.map((player) => player.manifest),
+    openings: [START_OPENING],
+    roundsPerPair: 1,
+    maxPlies,
+  };
+}
+
+const recordGolden = process.argv.includes("--record-golden");
+const seed = recordGolden ? "golden-seed" : "runner-seed";
+const players = [firstLegalPlayer("alpha"), firstLegalPlayer("beta")];
+const outcome = await runSeason(
+  seasonConfig(players, 4, seed),
+  players,
+  seededRng(seed),
+  fixedClock,
+);
+
+if (recordGolden) {
+  const path = new URL("../__tests__/fixtures/golden/season.json", import.meta.url);
+  await Bun.write(path, `${JSON.stringify(outcome, null, 2)}\n`);
+  console.log(`recorded ${outcome.games.length} games to ${path.pathname}`);
+} else {
+  console.log(JSON.stringify(outcome.standings, null, 2));
+}
