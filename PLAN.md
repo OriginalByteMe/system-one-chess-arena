@@ -49,6 +49,22 @@ The game server owns rules via `chess.js` and rejects anything outside
 Each phase ends with something runnable. No phase starts before the one above
 it passes its check.
 
+```mermaid
+flowchart LR
+  P0["Phase 0<br/>repo skeleton<br/>· done ·"] --> P1["Phase 1<br/>rules core +<br/>headless season"]
+  P1 --> P2["Phase 2<br/>LLM + Jev<br/>adapters"]
+  P2 --> P3["Phase 3<br/>Game DO<br/>alarms + idempotency"]
+  P3 --> P4["Phase 4<br/>Season DO<br/>+ D1 read model"]
+  P4 --> P5["Phase 5<br/>live UI<br/>+ WebSockets"]
+  P1 -.- K1["no keys,<br/>no Cloudflare"]
+  P2 -.- K2["needs a<br/>provider key"]
+  P3 -.- K3["needs a<br/>Cloudflare account"]
+  classDef done fill:#1f513a,stroke:#3ba776,color:#e8f5ee
+  classDef note fill:none,stroke:none,color:#aab4c6
+  class P0 done
+  class K1,K2,K3 note
+```
+
 **Phase 0 — repo skeleton.** Done: Bun + TypeScript + Wrangler, one health
 route, typecheck and `wrangler dev` both work.
 
@@ -86,6 +102,60 @@ endpoint returns standings that match the DO's own results.
 one live game over hibernating WebSockets, and a panel showing the last
 decision (move, strategy, confidence, latency).
 _Check:_ two browsers see the same move land within a second of each other.
+
+## Runtime shape
+
+Everything lives on Cloudflare. Dashed boxes are cut from v1 and have a place
+to land later without moving anything else.
+
+```mermaid
+flowchart TB
+  B["Browser<br/>React board + decision panel"]
+  W["Worker<br/>static assets, /api/*, admin"]
+  S["Season DO<br/>pairings, openings, Elo"]
+  G["Game DO · one per game<br/>chess.js rules, SQLite state,<br/>alarm turn loop"]
+  A["Competitor adapters<br/>random · greedy · LLM · Jev"]
+  D[("D1<br/>leaderboard + history")]
+  R[("R2<br/>PGN + raw telemetry")]
+  Q["Queue<br/>post-game job"]
+  C["Container<br/>Stockfish analysis"]
+  B -->|HTTP| W
+  B <-->|hibernating WebSocket| G
+  W -->|admin: start season| S
+  W -->|read| D
+  S -->|one per pairing| G
+  G -->|PositionInput / MoveDecision| A
+  G -->|committed result| D
+  G -.-> Q
+  Q -.-> C
+  Q -.-> R
+  classDef later fill:none,stroke:#5c6373,stroke-dasharray:4 4,color:#8a93a5
+  class Q,C,R later
+```
+
+One turn, including the part that stops an at-least-once alarm from paying a
+provider twice:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant AL as Alarm
+  participant G as Game DO
+  participant AD as Adapter
+  participant SP as Spectators
+  AL->>G: fire (gameId, ply)
+  G->>G: load FEN, legal moves, idempotency key
+  alt decision already committed
+    G-->>AL: reuse it, no provider call
+  else first attempt
+    G->>AD: PositionInput (legal moves + time/cost budget)
+    AD-->>G: MoveDecision (move, confidence, distribution)
+    G->>G: reject illegal move, apply fallback policy
+    G->>G: commit move + telemetry in one transaction
+    G->>SP: broadcast move
+    G->>G: schedule next alarm
+  end
+```
 
 ## Cut from the note's lean-first list
 

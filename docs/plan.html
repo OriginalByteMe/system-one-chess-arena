@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System One Chess Arena — build plan</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0 auto; padding: 3rem 1.5rem 6rem; max-width: 52rem;
+    background: #14161c; color: #dfe3ea;
+    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 1.9rem; margin: 0 0 1.5rem; }
+  h2 {
+    font-size: 1.2rem; margin: 3rem 0 1rem; padding-top: 1.2rem;
+    border-top: 1px solid #262b36; color: #fff;
+  }
+  a { color: #7fb2ff; }
+  p, li { max-width: 46rem; }
+  strong { color: #fff; }
+  em { color: #9aa4b6; font-style: normal; }
+  code {
+    background: #1d2129; border-radius: 4px; padding: 0.1em 0.35em;
+    font-size: 0.88em; font-family: ui-monospace, "JetBrains Mono", monospace;
+  }
+  pre {
+    background: #1a1e26; border: 1px solid #262b36; border-radius: 8px;
+    padding: 1rem; overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; font-size: 0.82rem; line-height: 1.5; }
+  .mermaid {
+    margin: 1.75rem 0; padding: 1.25rem; text-align: center;
+    background: #1a1e26; border: 1px solid #262b36; border-radius: 8px;
+  }
+  .err { color: #ff9a9a; }
+</style>
+</head>
+<body>
+<main id="out">Loading PLAN.md…</main>
+<script type="module">
+import { marked } from "https://cdn.jsdelivr.net/npm/marked@15/lib/marked.esm.js";
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+const out = document.getElementById("out");
+const res = await fetch("../PLAN.md");
+if (!res.ok) {
+  out.innerHTML = `<p class="err">Could not read PLAN.md (${res.status}). Serve the repo root over HTTP, not file://.</p>`;
+} else {
+  out.innerHTML = marked.parse(await res.text());
+  for (const block of out.querySelectorAll("pre > code.language-mermaid")) {
+    const holder = document.createElement("div");
+    holder.className = "mermaid";
+    holder.textContent = block.textContent;
+    block.parentElement.replaceWith(holder);
+  }
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "dark",
+    themeVariables: { background: "#1a1e26", fontSize: "14px" },
+  });
+  await mermaid.run({ querySelector: ".mermaid" });
+}
+</script>
+</body>
+</html>
