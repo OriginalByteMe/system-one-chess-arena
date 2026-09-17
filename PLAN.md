@@ -374,6 +374,60 @@ history and Phase 4's per-strategy outcomes are trustworthy, and once enough
 games exist per strategy to tell a real edge from variance. The threshold comes
 from the Phase 1 numbers, not from a guess now.
 
+## Runtime shape
+
+Everything lives on Cloudflare. Dashed boxes are cut from v1 and have a place
+to land later without moving anything else.
+
+```mermaid
+flowchart TB
+  B["Browser<br/>React board + decision panel"]
+  W["Worker<br/>static assets, /api/*, admin"]
+  S["Season DO<br/>pairings, openings, Elo"]
+  G["Game DO · one per game<br/>chess.js rules, SQLite state,<br/>alarm turn loop"]
+  A["Players<br/>manifest: name, playstyle,<br/>strategy set, features"]
+  D[("D1<br/>leaderboard, game history,<br/>strategy outcomes")]
+  R[("R2<br/>PGN + raw telemetry")]
+  Q["Queue<br/>post-game job"]
+  C["Container<br/>Stockfish analysis"]
+  B -->|HTTP| W
+  B <-->|hibernating WebSocket| G
+  W -->|admin: start season| S
+  W -->|read| D
+  S -->|one per pairing| G
+  G -->|"PositionInput + persona"| A
+  G -->|committed result| D
+  G -.-> Q
+  Q -.-> C
+  Q -.-> R
+  classDef later fill:none,stroke:#5c6373,stroke-dasharray:4 4,color:#8a93a5
+  class Q,C,R later
+```
+
+One turn, including the part that stops an at-least-once alarm from paying a
+provider twice, which is what the Phase 3 suite asserts:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant AL as Alarm
+  participant G as Game DO
+  participant AD as Player
+  participant SP as Spectators
+  AL->>G: fire (gameId, ply)
+  G->>G: load FEN, legal moves, idempotency key
+  alt decision already committed
+    G-->>AL: reuse it, no provider call
+  else first attempt
+    G->>AD: PositionInput (legal moves + time/cost budget)
+    AD-->>G: MoveDecision (move, strategy, confidence)
+    G->>G: reject illegal move, apply fallback policy
+    G->>G: commit move + telemetry in one transaction
+    G->>SP: broadcast move
+    G->>G: schedule next alarm
+  end
+```
+
 ## Cut from the note's lean-first list
 
 R2 artifact storage, the post-game Queue, the Stockfish container analysis
