@@ -1,0 +1,179 @@
+{
+  "standings": {
+    "seasonId": "runner-season",
+    "rows": [
+      {
+        "competitor": "alpha",
+        "version": "alpha-v1",
+        "games": 2,
+        "score": 1,
+        "elo": 1500
+      },
+      {
+        "competitor": "beta",
+        "version": "beta-v1",
+        "games": 2,
+        "score": 1,
+        "elo": 1500
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:beta@beta-v1:alpha@alpha-v1",
+      "ply": 0,
+      "competitor": "beta",
+      "version": "beta-v1",
+      "colour": "white",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "legalMoveCount": 20,
+      "move": "a2a3",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:beta@beta-v1:alpha@alpha-v1:0:beta-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:beta@beta-v1:alpha@alpha-v1",
+      "ply": 1,
+      "competitor": "alpha",
+      "version": "alpha-v1",
+      "colour": "black",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/P7/1PPPPPPP/RNBQKBNR b KQkq - 0 1",
+      "legalMoveCount": 20,
+      "move": "a7a5",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:beta@beta-v1:alpha@alpha-v1:1:alpha-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:beta@beta-v1:alpha@alpha-v1",
+      "ply": 2,
+      "competitor": "beta",
+      "version": "beta-v1",
+      "colour": "white",
+      "fen": "rnbqkbnr/1ppppppp/8/p7/8/P7/1PPPPPPP/RNBQKBNR w KQkq - 0 2",
+      "legalMoveCount": 19,
+      "move": "a1a2",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:beta@beta-v1:alpha@alpha-v1:2:beta-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:beta@beta-v1:alpha@alpha-v1",
+      "ply": 3,
+      "competitor": "alpha",
+      "version": "alpha-v1",
+      "colour": "black",
+      "fen": "rnbqkbnr/1ppppppp/8/p7/8/P7/RPPPPPPP/1NBQKBNR b Kkq - 1 2",
+      "legalMoveCount": 21,
+      "move": "a5a4",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:beta@beta-v1:alpha@alpha-v1:3:alpha-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:alpha@alpha-v1:beta@beta-v1",
+      "ply": 0,
+      "competitor": "alpha",
+      "version": "alpha-v1",
+      "colour": "white",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "legalMoveCount": 20,
+      "move": "a2a3",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:alpha@alpha-v1:beta@beta-v1:0:alpha-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:alpha@alpha-v1:beta@beta-v1",
+      "ply": 1,
+      "competitor": "beta",
+      "version": "beta-v1",
+      "colour": "black",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/P7/1PPPPPPP/RNBQKBNR b KQkq - 0 1",
+      "legalMoveCount": 20,
+      "move": "a7a5",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:alpha@alpha-v1:beta@beta-v1:1:beta-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:alpha@alpha-v1:beta@beta-v1",
+      "ply": 2,
+      "competitor": "alpha",
+      "version": "alpha-v1",
+      "colour": "white",
+      "fen": "rnbqkbnr/1ppppppp/8/p7/8/P7/1PPPPPPP/RNBQKBNR w KQkq - 0 2",
+      "legalMoveCount": 19,
+      "move": "a1a2",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:alpha@alpha-v1:beta@beta-v1:2:alpha-v1"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:alpha@alpha-v1:beta@beta-v1",
+      "ply": 3,
+      "competitor": "beta",
+      "version": "beta-v1",
+      "colour": "black",
+      "fen": "rnbqkbnr/1ppppppp/8/p7/8/P7/RPPPPPPP/1NBQKBNR b Kkq - 1 2",
+      "legalMoveCount": 21,
+      "move": "a5a4",
+      "strategy": "direct",
+      "latencyMs": 1,
+      "featuresSeen": [],
+      "idempotencyKey": "runner-season:0:alpha@alpha-v1:beta@beta-v1:3:beta-v1"
+    }
+  ],
+  "games": [
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:beta@beta-v1:alpha@alpha-v1",
+      "white": {
+        "name": "beta",
+        "version": "beta-v1"
+      },
+      "black": {
+        "name": "alpha",
+        "version": "alpha-v1"
+      },
+      "openingId": "initial-position",
+      "result": "draw",
+      "reason": "move-limit",
+      "plies": 4,
+      "pgn": "[Event \"?\"]\n[Site \"?\"]\n[Date \"????.??.??\"]\n[Round \"?\"]\n[White \"?\"]\n[Black \"?\"]\n[Result \"*\"]\n\n1. a3 a5 2. Ra2 a4 *"
+    },
+    {
+      "seasonId": "runner-season",
+      "gameId": "runner-season:0:alpha@alpha-v1:beta@beta-v1",
+      "white": {
+        "name": "alpha",
+        "version": "alpha-v1"
+      },
+      "black": {
+        "name": "beta",
+        "version": "beta-v1"
+      },
+      "openingId": "initial-position",
+      "result": "draw",
+      "reason": "move-limit",
+      "plies": 4,
+      "pgn": "[Event \"?\"]\n[Site \"?\"]\n[Date \"????.??.??\"]\n[Round \"?\"]\n[White \"?\"]\n[Black \"?\"]\n[Result \"*\"]\n\n1. a3 a5 2. Ra2 a4 *"
+    }
+  ]
+}
