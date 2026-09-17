@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "system-one-chess-arena",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true }
+  // Durable Object (Game, Season), D1 and static-asset bindings land with
+  // their phases in PLAN.md, so this config stays deployable meanwhile.
+}
