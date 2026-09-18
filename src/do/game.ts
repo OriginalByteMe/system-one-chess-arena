@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 import { createSystemClock } from "../core/clock.ts";
-import { ContractViolation } from "../core/errors.ts";
+import { ContractViolation, NotImplemented } from "../core/errors.ts";
 import type { Env } from "../core/env.ts";
 import { buildPositionInput } from "../core/position-input.ts";
 import { createRng } from "../core/rng.ts";
@@ -12,6 +12,7 @@ import {
   type Position,
 } from "../core/rules.ts";
 import type {
+  BroadcastSchedule,
   ChatResponse,
   CompetitorManifest,
   CompetitorRef,
@@ -262,6 +263,30 @@ export class GameDurableObject extends DurableObject<Env> {
           decisions,
           finished: game.finished,
         };
+  }
+
+  /**
+   * Records a whole game inside one invocation, for precomputed seasons.
+   *
+   * Contract:
+   * - Plies loop in this call rather than one per alarm, so a 60-ply
+   *   hierarchical game is 120 subrequests, inside the paid 1,000 ceiling.
+   * - Idempotent: calling it again on a finished game returns the same
+   *   snapshot and makes no provider call, because the coordinator retries.
+   * - A game already part-played resumes from its stored position rather than
+   *   starting over.
+   * - The broadcast schedule is stored with the game so the gate can slice it
+   *   later, and recording never waits on the clock.
+   */
+  async record(
+    pairing: Pairing,
+    config: SeasonConfig,
+    schedule: BroadcastSchedule,
+  ): Promise<GameSnapshot> {
+    void pairing;
+    void config;
+    void schedule;
+    throw new NotImplemented("do/game.GameDurableObject.record");
   }
 
   private loadStoredGame(): StoredGame | undefined {

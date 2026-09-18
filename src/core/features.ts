@@ -1,6 +1,6 @@
 import { Chess } from "chess.js";
 import type { Color, PieceSymbol, Square } from "chess.js";
-import { ContractViolation } from "./errors.ts";
+import { ContractViolation, NotImplemented } from "./errors.ts";
 import type { FeatureKey, FeatureSet, FeatureSubset, Uci } from "./types.ts";
 import type { Position } from "./rules.ts";
 
@@ -180,4 +180,31 @@ export function filterFeatures(
   declared: readonly FeatureKey[],
 ): FeatureSubset {
   return Object.fromEntries(declared.map((key) => [key, all[key]]));
+}
+
+/**
+ * Computes only the features a manifest declares.
+ *
+ * This exists because `computeFeatures` always runs the `opponentMateInOne`
+ * search, a 2-ply scan over every move crossed with every reply, which measured
+ * about 200 ms per position on 2026-09-18 and is essentially the whole cost of
+ * feature computation. A persona that does not declare it should not pay for
+ * it, and at 60 plies a game that difference is the precompute ceiling.
+ *
+ * Contract:
+ * - The returned object's own keys are exactly `declared`, in that order, and
+ *   every value equals what `computeFeatures` would have produced.
+ * - No undeclared feature is computed. The expensive searches in particular
+ *   must be reachable only when asked for.
+ * - Duplicate keys in `declared` appear once.
+ */
+export function computeDeclaredFeatures(
+  position: Position,
+  declared: readonly FeatureKey[],
+  lastMove?: Uci,
+): FeatureSubset {
+  void position;
+  void declared;
+  void lastMove;
+  throw new NotImplemented("features.computeDeclaredFeatures");
 }

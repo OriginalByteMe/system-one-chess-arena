@@ -9,4 +9,6 @@ export interface Env {
   readonly TYPESAFE_BASE_URL: string;
   readonly ARENA_LLM_MODEL: string;
   readonly ARENA_JEV_MODEL: string;
+  /** Bearer token for the admin routes. Absent means the routes refuse. */
+  readonly ARENA_ADMIN_TOKEN?: string;
 }

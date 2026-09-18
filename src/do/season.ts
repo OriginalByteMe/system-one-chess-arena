@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { Chess } from "chess.js";
 
-import { ContractViolation } from "../core/errors.ts";
+import { ContractViolation, NotImplemented } from "../core/errors.ts";
 import type { Env } from "../core/env.ts";
 import type {
   Colour,
@@ -9,6 +9,7 @@ import type {
   GameResult,
   GameSummary,
   Pairing,
+  RecordRequest,
   SeasonConfig,
   SeasonStandings,
   StrategyLabel,
@@ -161,6 +162,26 @@ export class SeasonDurableObject extends DurableObject<Env> {
       config,
       games.map((game) => game.summary),
     );
+  }
+
+  /**
+   * Records a whole season up front, then hands it to the broadcast clock.
+   *
+   * Contract:
+   * - Runs at most `request.concurrency` games at a time, starting the next
+   *   when one finishes. The six-simultaneous-connection ceiling is per
+   *   invocation, so the fan-out has to be one Game Durable Object per game
+   *   rather than one Worker looping.
+   * - Each game's broadcast start is staggered from the request's schedule, so
+   *   a season plays out rather than all at once.
+   * - Idempotent: a re-run skips games already recorded and returns the same
+   *   summaries, because the coordinator alarm retries.
+   * - Projects games, decisions and competitor versions into D1 as each game
+   *   lands, so a later failure cannot lose a finished game.
+   */
+  async record(request: RecordRequest): Promise<readonly GameSummary[]> {
+    void request;
+    throw new NotImplemented("do/season.SeasonDurableObject.record");
   }
 
   private gameStub(gameId: string): GameStub {

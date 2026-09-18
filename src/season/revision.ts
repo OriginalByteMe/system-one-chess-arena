@@ -1,4 +1,4 @@
-import { ContractViolation } from "../core/errors.ts";
+import { ContractViolation, NotImplemented } from "../core/errors.ts";
 import { manifestVersion } from "../core/manifest.ts";
 import {
   STRATEGY_LABELS,
@@ -165,4 +165,32 @@ export async function reviseStrategies(
       version: manifestVersion(revisedFields),
     },
   };
+}
+
+/**
+ * Asks whether the playstyle sentence itself should change.
+ *
+ * Playstyle is the text Jev actually reads, and in the 2026-09-17 ablation it
+ * moved answers more than any computed feature, so a competitor that never
+ * revises it is barely adapting at all.
+ *
+ * Contract: the request offers the current sentence against a small set of
+ * alternatives derived from the record, so the answer is a choice rather than
+ * free text. Free text would let a persona rewrite itself into anything.
+ */
+export function buildPlaystyleRequest(args: RevisionArgs): SystemOneRequest {
+  void args;
+  throw new NotImplemented("season.revision.buildPlaystyleRequest");
+}
+
+/**
+ * Revises the playstyle sentence.
+ *
+ * Contract: same sample-count guard as `reviseStrategies`; only `playstyle`
+ * changes, so the strategy list, features, budget and fallback are identical;
+ * the version is rehashed. A provider failure keeps the manifest.
+ */
+export function revisePlaystyle(args: RevisionArgs): Promise<RevisionOutcome> {
+  void args;
+  throw new NotImplemented("season.revision.revisePlaystyle");
 }

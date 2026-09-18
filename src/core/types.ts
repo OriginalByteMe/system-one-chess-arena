@@ -452,3 +452,328 @@ export type RevisionOutcome =
   | { readonly kind: "kept"; readonly version: string }
   | { readonly kind: "revised"; readonly manifest: CompetitorManifest }
   | { readonly kind: "blocked"; readonly reason: "insufficient-samples"; readonly needed: number };
+
+// ---------------------------------------------------------------------------
+// Phase 2: broadcast clock and spoiler gate
+// ---------------------------------------------------------------------------
+
+/** Milliseconds since the Unix epoch. */
+export type EpochMs = number;
+
+/**
+ * When a recorded game goes on air and how fast it plays. Stored per game; the
+ * status is always derived from the clock, never written down.
+ */
+export interface BroadcastSchedule {
+  readonly startAt: EpochMs;
+  readonly msPerPly: number;
+}
+
+export type BroadcastStatus = "scheduled" | "on-air" | "finished";
+
+/**
+ * What a viewer is allowed to see right now. Carries no total ply count: the
+ * length of a game in progress is itself a spoiler.
+ */
+export interface RevealWindow {
+  readonly status: BroadcastStatus;
+  /** Decisions with `ply < revealedPlies` may be served. */
+  readonly revealedPlies: number;
+  /** When `revealedPlies` next increases. Absent once the broadcast is over. */
+  readonly nextBoundaryAt?: EpochMs;
+}
+
+/** A game as recorded: the full truth, never served to a viewer unsliced. */
+export interface RecordedGame {
+  readonly summary: GameSummary;
+  readonly schedule: BroadcastSchedule;
+  readonly matchId?: string;
+}
+
+/** A game as served: sliced to the revealed prefix by the gate. */
+export interface RevealedGame {
+  readonly gameId: string;
+  readonly seasonId: string;
+  readonly white: CompetitorRef;
+  readonly black: CompetitorRef;
+  readonly openingId: string;
+  readonly window: RevealWindow;
+  /** Position after the revealed decisions, so the client needs no engine. */
+  readonly fen: Fen;
+  readonly decisions: readonly DecisionRecord[];
+  /** Present only once the whole broadcast has played out. */
+  readonly outcome?: TerminalState;
+  /** True when the game may be watched from ply 1 on demand. */
+  readonly catchUp: boolean;
+}
+
+/** Legal moves at the revealed position, for guess-the-move. */
+export interface RevealedMoves {
+  readonly gameId: string;
+  readonly ply: number;
+  readonly fen: Fen;
+  readonly legalMoves: readonly Uci[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: identity and lineage
+// ---------------------------------------------------------------------------
+
+/**
+ * One row per (competitor, version). The competitor name is the stable
+ * cross-season identity, so it must be unique and immutable; the version chain
+ * hangs off it through `parentVersion`.
+ */
+export interface CompetitorVersionRow {
+  readonly competitor: string;
+  readonly version: string;
+  readonly seasonId: string;
+  readonly manifest: CompetitorManifest;
+  readonly parentVersion?: string;
+  readonly traits: readonly Trait[];
+  readonly rationale?: string;
+}
+
+export type NameViolationReason =
+  | "duplicate-in-season"
+  | "reserved-name"
+  | "version-not-derived";
+
+export interface NameViolation {
+  readonly competitor: string;
+  readonly reason: NameViolationReason;
+  readonly detail: string;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: leaderboard, rolled up by competitor name
+// ---------------------------------------------------------------------------
+
+export interface LeaderboardRow {
+  readonly competitor: string;
+  /** Every version that played, oldest first. */
+  readonly versions: readonly string[];
+  readonly games: number;
+  readonly wins: number;
+  readonly draws: number;
+  readonly losses: number;
+  readonly score: number;
+  readonly elo: number;
+  readonly meanConfidence: number;
+  /** Brier score of stated confidence against the game's outcome. */
+  readonly calibrationError: number;
+  readonly fallbackRate: number;
+  readonly meanLatencyMs: number;
+  readonly costUsd: number;
+}
+
+export interface Leaderboard {
+  readonly rows: readonly LeaderboardRow[];
+  /** Reveal boundary this was computed at, and the cache expiry. */
+  readonly asOf: EpochMs;
+}
+
+export interface CalibrationBucket {
+  readonly lower: number;
+  readonly upper: number;
+  readonly decisions: number;
+  readonly meanConfidence: number;
+  /** Mean game score of the games those decisions were played in. */
+  readonly meanScore: number;
+}
+
+export interface CalibrationCurve {
+  readonly competitor: string;
+  readonly buckets: readonly CalibrationBucket[];
+  readonly error: number;
+}
+
+export interface ModelPricing {
+  readonly inputUsdPerMillion: number;
+  readonly outputUsdPerMillion: number;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: matches and brackets
+// ---------------------------------------------------------------------------
+
+/**
+ * A bracket slot. `winner-of` is what a spoiler-gated future round returns
+ * instead of a name.
+ */
+export type MatchSlot =
+  | { readonly kind: "competitor"; readonly competitor: string }
+  | { readonly kind: "winner-of"; readonly matchId: string }
+  | { readonly kind: "bye" };
+
+export interface Match {
+  readonly matchId: string;
+  readonly bracketId: string;
+  readonly round: number;
+  /** Position within the round, from the top of the bracket. */
+  readonly slot: number;
+  readonly a: MatchSlot;
+  readonly b: MatchSlot;
+  readonly bestOf: number;
+  readonly gameIds: readonly string[];
+  readonly winner?: string;
+}
+
+export interface Bracket {
+  readonly bracketId: string;
+  readonly seasonId: string;
+  /** Round 0 first. Every round is a full power of two after byes. */
+  readonly rounds: readonly (readonly Match[])[];
+}
+
+export type MatchDecidedBy = "score" | "seed";
+
+export interface MatchOutcome {
+  readonly matchId: string;
+  readonly winner: string;
+  readonly loser: string;
+  readonly scoreA: number;
+  readonly scoreB: number;
+  readonly decidedBy: MatchDecidedBy;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: rivalries
+// ---------------------------------------------------------------------------
+
+export type HeadToHeadResult = "win" | "loss" | "draw";
+
+/** One direction of a pair's history: `competitor` against `opponent`. */
+export interface HeadToHead {
+  readonly competitor: string;
+  readonly opponent: string;
+  readonly wins: number;
+  readonly losses: number;
+  readonly draws: number;
+  /** Oldest first, capped by the aggregator. Traits read only this. */
+  readonly recent: readonly HeadToHeadResult[];
+  /** Game ids behind `recent`, same order. */
+  readonly gameIds: readonly string[];
+  /** Run of identical most recent results; 0 when there is no history. */
+  readonly streak: number;
+}
+
+export type TraitCondition =
+  | { readonly kind: "loss-streak"; readonly atLeast: number }
+  | { readonly kind: "broke-loss-streak"; readonly atLeast: number };
+
+/**
+ * A trait rule is configuration, not code. It may only append to the playstyle
+ * sentence and reorder strategies; budget, features and fallback are off limits
+ * so the league keeps measuring decision quality rather than handicaps.
+ */
+export interface TraitRule {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly when: TraitCondition;
+  readonly playstyleSuffix: string;
+  /** Declared strategies pulled to the front, in this order. */
+  readonly promote: readonly StrategyLabel[];
+  /** Higher wins when the cap forces a choice. */
+  readonly priority: number;
+}
+
+export interface Trait {
+  readonly rule: string;
+  readonly opponent: string;
+  readonly reason: string;
+  readonly gameIds: readonly string[];
+}
+
+/** A base manifest resolved against one opponent. Its version is a real hash. */
+export interface ResolvedManifest {
+  readonly manifest: CompetitorManifest;
+  readonly baseVersion: string;
+  readonly traits: readonly Trait[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: adaptation between seasons
+// ---------------------------------------------------------------------------
+
+export interface PlaystyleChange {
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface AdaptationResult {
+  readonly competitor: string;
+  readonly outcome: RevisionOutcome;
+  readonly playstyle?: PlaystyleChange;
+  readonly rationale: string;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: read views
+// ---------------------------------------------------------------------------
+
+export interface DashboardEntry {
+  readonly gameId: string;
+  readonly seasonId: string;
+  readonly white: CompetitorRef;
+  readonly black: CompetitorRef;
+  readonly fen: Fen;
+  readonly ply: number;
+  readonly status: BroadcastStatus;
+  readonly lastMove?: Uci;
+  readonly strategy?: StrategyLabel;
+  readonly confidence?: number;
+  /** Trait ids active in this pairing, for the rivalry banner. */
+  readonly rivalry: readonly string[];
+  /** Ordering key: recent material swing, rivalry, and low confidence. */
+  readonly interest: number;
+}
+
+export interface RivalrySummary {
+  readonly headToHead: HeadToHead;
+  readonly traits: readonly Trait[];
+  /** Revealed games between the pair, oldest first. */
+  readonly gameIds: readonly string[];
+}
+
+export interface CompetitorProfile {
+  readonly competitor: string;
+  readonly row: LeaderboardRow;
+  readonly lineage: readonly CompetitorVersionRow[];
+  readonly strategyMix: { readonly [key in StrategyLabel]?: StrategyStats };
+  readonly calibration: CalibrationCurve;
+  readonly rivals: readonly RivalrySummary[];
+}
+
+/**
+ * Everything the read API needs, so handlers stay pure and the tests need no
+ * database. The D1-backed implementation is the only thing that knows SQL.
+ */
+export interface ArenaStore {
+  readonly game: (
+    seasonId: string,
+    gameId: string,
+  ) => Promise<RecordedGame | undefined>;
+  readonly games: (seasonId: string) => Promise<readonly RecordedGame[]>;
+  readonly decisions: (
+    seasonId: string,
+    gameId: string,
+  ) => Promise<readonly DecisionRecord[]>;
+  readonly competitorDecisions: (
+    competitor: string,
+  ) => Promise<readonly DecisionRecord[]>;
+  readonly versions: (
+    competitor: string,
+  ) => Promise<readonly CompetitorVersionRow[]>;
+  readonly matches: (bracketId: string) => Promise<readonly Match[]>;
+  readonly bracketSeason: (bracketId: string) => Promise<string | undefined>;
+}
+
+/** Body of the admin record request: a season plus when it goes on air. */
+export interface RecordRequest {
+  readonly config: SeasonConfig;
+  readonly broadcast: BroadcastSchedule;
+  /** Games recorded at once. Bounded by the provider's rate limit. */
+  readonly concurrency: number;
+}

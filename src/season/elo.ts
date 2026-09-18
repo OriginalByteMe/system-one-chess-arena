@@ -1,3 +1,4 @@
+import { NotImplemented } from "../core/errors.ts";
 import type {
   CompetitorRef,
   EloRating,
@@ -67,4 +68,21 @@ export function ratingsFromGames(
   }
 
   return ratings;
+}
+
+/**
+ * Ratings rolled up by competitor name, as decided on 2026-09-18: a revised or
+ * trait-modified version keeps the same rating line.
+ *
+ * Contract: identical to `ratingsFromGames` except that all versions of a name
+ * share one rating, and the returned `version` is the latest version that name
+ * played. Games are applied in the order given, which is the revealed order.
+ */
+export function ratingsByCompetitor(
+  games: readonly GameSummary[],
+  k: number = DEFAULT_K,
+): readonly EloRating[] {
+  void games;
+  void k;
+  throw new NotImplemented("season.elo.ratingsByCompetitor");
 }
