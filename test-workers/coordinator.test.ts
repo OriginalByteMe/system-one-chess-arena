@@ -176,6 +176,19 @@ beforeEach(async () => {
   );
 });
 
+/**
+ * A real delay, and one of the rare cases that needs one. Two Durable Object
+ * calls do not interleave on microtasks, and a zero-delay macrotask is not
+ * enough either: the sibling RPC has to be dispatched by workerd itself, which
+ * fake timers cannot drive. Without this the test observes one in flight even
+ * when the coordinator is genuinely running games in parallel.
+ */
+function yieldToScheduler(): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, 5);
+  return promise;
+}
+
 describe("SeasonDurableObject.record", () => {
   test("runs at most the requested concurrency at once and records every game", async () => {
     const seasonId = "coordinator-concurrency";
@@ -184,8 +197,7 @@ describe("SeasonDurableObject.record", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await Promise.resolve();
-      await Promise.resolve();
+      await yieldToScheduler();
       inFlight -= 1;
       return providerResponse("f7g7");
     });

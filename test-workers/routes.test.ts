@@ -51,13 +51,23 @@ function configFor(seasonId: string): SeasonConfig {
   };
 }
 
+const ADMIN_TOKEN = "route-test-admin-token";
+
+/** The admin routes spend provider money, so every POST carries the bearer. */
+function adminHeaders(): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${ADMIN_TOKEN}`,
+  };
+}
+
 function startSeason(
   config: SeasonConfig,
   pathSeasonId = config.seasonId,
 ): Promise<Response> {
   return SELF.fetch(`${ORIGIN}/api/seasons/${pathSeasonId}/start`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify(config),
   });
 }
@@ -77,6 +87,7 @@ function pairing(
 
 beforeEach(async () => {
   vi.restoreAllMocks();
+  Object.assign(env, { ARENA_ADMIN_TOKEN: ADMIN_TOKEN });
   await reset();
 });
 
@@ -85,7 +96,7 @@ describe("Worker routes", () => {
     const response = await SELF.fetch(`${ORIGIN}/api/health`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, phase: 0 });
+    expect(await response.json()).toEqual({ ok: true, phase: 2 });
   });
 
   test("POST start accepts a valid config and returns its pairings", async () => {
@@ -108,13 +119,30 @@ describe("Worker routes", () => {
       `${ORIGIN}/api/seasons/route-malformed/start`,
       {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: adminHeaders(),
         body: "{",
       },
     );
 
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("body must be valid JSON");
+  });
+
+  test("POST start without the admin bearer is refused before anything runs", async () => {
+    const config = configFor("route-unauthenticated");
+    const response = await SELF.fetch(
+      `${ORIGIN}/api/seasons/${config.seasonId}/start`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(config),
+      },
+    );
+
+    expect(response.status).toBe(401);
+    await expect(
+      SELF.fetch(`${ORIGIN}/api/seasons/${config.seasonId}/standings`),
+    ).rejects.toThrow(/season has not been started/);
   });
 
   test("POST start rejects a path and body seasonId mismatch", async () => {

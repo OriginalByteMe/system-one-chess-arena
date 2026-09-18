@@ -1,10 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { Chess } from "chess.js";
 
-import { ContractViolation, NotImplemented } from "../core/errors.ts";
+import { ContractViolation } from "../core/errors.ts";
 import type { Env } from "../core/env.ts";
 import type {
+  BroadcastSchedule,
   Colour,
+  CompetitorManifest,
+  CompetitorVersionRow,
   DecisionRecord,
   GameResult,
   GameSummary,
@@ -13,10 +16,13 @@ import type {
   SeasonConfig,
   SeasonStandings,
   StrategyLabel,
+  Trait,
 } from "../core/types.ts";
 import type { GameSnapshot } from "./game.ts";
 import { createRng } from "../core/rng.ts";
 import { DEFAULT_ELO, ratingsFromGames } from "../season/elo.ts";
+import { decisionStatements } from "../season/decisions.ts";
+import { registerVersions } from "../season/identity.ts";
 import { buildPairings } from "../season/pairings.ts";
 
 const CONFIG_KEY = "config";
@@ -26,6 +32,11 @@ const FINISHED_PREFIX = "finished:";
 interface GameStub extends DurableObjectStub {
   start(pairing: Pairing, config: SeasonConfig): Promise<void>;
   snapshot(): Promise<GameSnapshot>;
+  record(
+    pairing: Pairing,
+    config: SeasonConfig,
+    schedule: BroadcastSchedule,
+  ): Promise<GameSnapshot>;
 }
 
 interface FinishedGame {
@@ -119,6 +130,35 @@ function recountStrategies(
   return [...outcomes.values()];
 }
 
+interface CompetitorVersionRowShape {
+  readonly season_id: string;
+  readonly competitor: string;
+  readonly version: string;
+  readonly manifest_json: string;
+  readonly parent_version: string | null;
+  readonly traits_json: string | null;
+  readonly rationale: string | null;
+}
+
+function parseCompetitorVersionRow(
+  row: CompetitorVersionRowShape,
+): CompetitorVersionRow {
+  const manifest = JSON.parse(row.manifest_json) as CompetitorManifest;
+  const traits =
+    row.traits_json === null
+      ? []
+      : (JSON.parse(row.traits_json) as readonly Trait[]);
+  return {
+    competitor: row.competitor,
+    version: row.version,
+    seasonId: row.season_id,
+    manifest,
+    ...(row.parent_version === null ? {} : { parentVersion: row.parent_version }),
+    traits,
+    ...(row.rationale === null ? {} : { rationale: row.rationale }),
+  };
+}
+
 export class SeasonDurableObject extends DurableObject<Env> {
   async start(config: SeasonConfig): Promise<void> {
     const existing = this.ctx.storage.kv.get<SeasonConfig>(CONFIG_KEY);
@@ -180,8 +220,55 @@ export class SeasonDurableObject extends DurableObject<Env> {
    *   lands, so a later failure cannot lose a finished game.
    */
   async record(request: RecordRequest): Promise<readonly GameSummary[]> {
-    void request;
-    throw new NotImplemented("do/season.SeasonDurableObject.record");
+    const { config, broadcast, concurrency } = request;
+    await this.start(config);
+    const { pairings } = this.storedSeason("record");
+    await this.registerCompetitors(config);
+
+    const staggerMs = config.maxPlies * broadcast.msPerPly;
+    const results = new Map<string, GameSummary>();
+    let failure: unknown;
+    let cursor = 0;
+
+    const runNext = async (): Promise<void> => {
+      for (;;) {
+        const index = cursor;
+        cursor += 1;
+        const pairing = pairings[index];
+        if (pairing === undefined) return;
+        const schedule: BroadcastSchedule = {
+          startAt: broadcast.startAt + index * staggerMs,
+          msPerPly: broadcast.msPerPly,
+        };
+        try {
+          const snapshot = await this.gameStub(pairing.gameId).record(
+            pairing,
+            config,
+            schedule,
+          );
+          const game = this.finishedGame(config, pairing, snapshot, "record");
+          if (game !== undefined) {
+            results.set(pairing.gameId, game.summary);
+            await this.projectGame(game, schedule);
+          }
+        } catch (error) {
+          failure = error;
+        }
+      }
+    };
+
+    const workerCount = Math.min(concurrency, pairings.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runNext()));
+
+    if (failure !== undefined) throw failure;
+
+    return pairings.map((pairing) => {
+      const summary = results.get(pairing.gameId);
+      if (summary === undefined) {
+        violation("record", `missing recorded game: ${pairing.gameId}`);
+      }
+      return summary;
+    });
   }
 
   private gameStub(gameId: string): GameStub {
@@ -336,6 +423,77 @@ export class SeasonDurableObject extends DurableObject<Env> {
         ),
       );
     }
+    await this.env.DB.batch(statements);
+  }
+
+  private async knownVersions(): Promise<readonly CompetitorVersionRow[]> {
+    const result = await this.env.DB.prepare(
+      "SELECT season_id, competitor, version, manifest_json, parent_version, traits_json, rationale FROM competitor_versions",
+    ).all<CompetitorVersionRowShape>();
+    return result.results.map(parseCompetitorVersionRow);
+  }
+
+  private async registerCompetitors(config: SeasonConfig): Promise<void> {
+    const known = await this.knownVersions();
+    const { rows, violations } = registerVersions({ config, known });
+    if (violations.length > 0) {
+      violation("record", violations.map((v) => v.detail).join("; "));
+    }
+
+    const statements: D1PreparedStatement[] = [];
+    const insertVersion = this.env.DB.prepare(
+      "INSERT INTO competitor_versions (season_id, competitor, version, manifest_json, parent_version, traits_json, rationale) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, competitor, version) DO NOTHING",
+    );
+    for (const row of rows) {
+      statements.push(
+        insertVersion.bind(
+          row.seasonId,
+          row.competitor,
+          row.version,
+          JSON.stringify(row.manifest),
+          row.parentVersion ?? null,
+          JSON.stringify(row.traits),
+          row.rationale ?? null,
+        ),
+      );
+    }
+
+    const insertCompetitor = this.env.DB.prepare(
+      "INSERT INTO competitors (name, first_season_id) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
+    );
+    for (const competitor of config.competitors) {
+      statements.push(insertCompetitor.bind(competitor.name, config.seasonId));
+    }
+
+    if (statements.length > 0) await this.env.DB.batch(statements);
+  }
+
+  private async projectGame(
+    game: FinishedGame,
+    schedule: BroadcastSchedule,
+  ): Promise<void> {
+    const { summary, decisions } = game;
+    const insertGame = this.env.DB.prepare(
+      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, plies, pgn, broadcast_start_at, ms_per_ply) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
+    );
+    const statements: D1PreparedStatement[] = [
+      insertGame.bind(
+        summary.seasonId,
+        summary.gameId,
+        summary.white.name,
+        summary.white.version,
+        summary.black.name,
+        summary.black.version,
+        summary.openingId,
+        summary.result,
+        summary.reason,
+        summary.plies,
+        summary.pgn,
+        schedule.startAt,
+        schedule.msPerPly,
+      ),
+      ...decisionStatements(this.env.DB, decisions),
+    ];
     await this.env.DB.batch(statements);
   }
 }

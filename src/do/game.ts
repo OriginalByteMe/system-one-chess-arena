@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
 import { createSystemClock } from "../core/clock.ts";
-import { ContractViolation, NotImplemented } from "../core/errors.ts";
+import { ContractViolation } from "../core/errors.ts";
 import type { Env } from "../core/env.ts";
 import { buildPositionInput } from "../core/position-input.ts";
 import { createRng } from "../core/rng.ts";
@@ -283,10 +283,15 @@ export class GameDurableObject extends DurableObject<Env> {
     config: SeasonConfig,
     schedule: BroadcastSchedule,
   ): Promise<GameSnapshot> {
-    void pairing;
-    void config;
-    void schedule;
-    throw new NotImplemented("do/game.GameDurableObject.record");
+    if (this.loadStoredGame() === undefined) {
+      await this.start(pairing, config);
+    }
+    this.ctx.storage.kv.put("schedule", schedule);
+
+    while (this.storedGame("record").game.finished === undefined) {
+      await this.advanceOnePly();
+    }
+    return this.snapshot();
   }
 
   private loadStoredGame(): StoredGame | undefined {

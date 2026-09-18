@@ -260,6 +260,9 @@ describe("GameDurableObject.record", () => {
     ]);
 
     const resumeSpy = mockProviderMoves(FOOLS_MATE_MOVES.slice(1));
+    // vi.spyOn returns the existing mock when the target is already spied, so
+    // the alarm's call is still on the counter. Clear it to count the resume.
+    resumeSpy.mockClear();
     const result = await record(stub, pairing, config, scheduleFor());
 
     expect(resumeSpy).toHaveBeenCalledTimes(3);
