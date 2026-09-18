@@ -13,7 +13,12 @@ export function applyEvent(state: SpectatorState, event: LiveEvent): SpectatorSt
     return event.ply === state.cursor ? { ...state, finished: event } : state;
   }
 
-  return event.ply === state.cursor + 1
+  // A game played from an opening begins at the opening's ply, and a fresh
+  // spectator has no way to know that ply before its first event. The first
+  // move applied to an untouched stream therefore sets the baseline; every
+  // move after it must be contiguous, so a gap still waits to be filled.
+  const expected = state.lastMove === undefined ? event.ply : state.cursor + 1;
+  return event.ply === expected
     ? { ...state, fen: event.fen, cursor: event.ply, lastMove: event }
     : state;
 }

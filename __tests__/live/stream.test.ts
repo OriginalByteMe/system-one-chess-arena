@@ -109,6 +109,24 @@ describe("live spectator stream", () => {
     });
   });
 
+  test("a game that starts from an opening applies its first move at that ply", () => {
+    const fresh = initialSpectatorState("game-live-1", START_FEN);
+    const openingMove: MoveEvent = { ...MOVE_ONE, ply: 6 };
+
+    const afterOpeningMove = applyEvent(fresh, openingMove);
+
+    expect(afterOpeningMove).toEqual({
+      gameId: "game-live-1",
+      fen: FEN_AFTER_E4,
+      cursor: 6,
+      lastMove: openingMove,
+    });
+    expect(applyEvent(afterOpeningMove, { ...MOVE_THREE, ply: 8 })).toEqual(
+      afterOpeningMove,
+    );
+    expect(applyEvent(afterOpeningMove, { ...MOVE_TWO, ply: 7 }).cursor).toBe(7);
+  });
+
   test("a duplicate ply is ignored without changing state", () => {
     const state = stateAfterFirstMove();
 
