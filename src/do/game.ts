@@ -518,6 +518,9 @@ export class GameDurableObject extends DurableObject<Env> {
         ply: nextPosition.ply,
         result: finished.result,
         reason: finished.reason,
+        ...(finished.adjudicatedCp === undefined
+          ? {}
+          : { adjudicatedCp: finished.adjudicatedCp }),
       };
       this.broadcast(resultEvent);
     }

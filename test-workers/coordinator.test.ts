@@ -162,7 +162,7 @@ function sortedGameIds(summaries: readonly GameSummary[]): readonly string[] {
 // idempotent no matter whether reset() drops tables or only clears rows.
 const SCHEMA_STATEMENTS = [
   "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, parent_version TEXT, traits_json TEXT, rationale TEXT, PRIMARY KEY (season_id, competitor, version))",
-  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, plies INTEGER NOT NULL, pgn TEXT NOT NULL, match_id TEXT, broadcast_start_at INTEGER, ms_per_ply INTEGER, PRIMARY KEY (season_id, game_id))",
+  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, adjudicated_cp INTEGER, plies INTEGER NOT NULL, pgn TEXT NOT NULL, match_id TEXT, broadcast_start_at INTEGER, ms_per_ply INTEGER, PRIMARY KEY (season_id, game_id))",
   "CREATE TABLE IF NOT EXISTS decisions (season_id TEXT NOT NULL, game_id TEXT NOT NULL, ply INTEGER NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, colour TEXT NOT NULL, fen TEXT NOT NULL, legal_move_count INTEGER NOT NULL, move TEXT NOT NULL, strategy TEXT NOT NULL, confidence REAL, distribution_json TEXT, latency_ms INTEGER NOT NULL, tokens_in INTEGER, tokens_out INTEGER, fallback TEXT, features_seen_json TEXT NOT NULL, idempotency_key TEXT NOT NULL, PRIMARY KEY (season_id, game_id, ply))",
   "CREATE INDEX IF NOT EXISTS decisions_by_competitor ON decisions (competitor, season_id, game_id, ply)",
   "CREATE TABLE IF NOT EXISTS competitors (name TEXT NOT NULL PRIMARY KEY, first_season_id TEXT NOT NULL)",
@@ -355,5 +355,73 @@ describe("SeasonDurableObject.record", () => {
 
     expect(row?.parent).toBe("alpha-v1");
     expect(row?.rationale).toBe("moved to a faster sentence");
+  });
+});
+
+describe("SeasonDurableObject.record adjudication", () => {
+  // White is a rook up and the move limit is one ply, so the game ends with no
+  // progress and is decided on material. The figure has to survive the whole
+  // way out: the returned summary, the games row, and the read path that the
+  // site uses to explain why a repetition or a move limit was a win.
+  const ROOK_UP: Opening = {
+    id: "coordinator-rook-up",
+    name: "White is a rook up",
+    moves: [],
+    fen: "4k3/8/8/8/8/8/8/R3K3 w - - 0 1",
+  };
+
+  test("carries the adjudicated material figure from the rule to the stored row", async () => {
+    const seasonId = "coordinator-adjudicated";
+    vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(providerResponse("a1a2")),
+    );
+
+    const summaries = await recordSeason(seasonStub(seasonId), {
+      config: {
+        seasonId,
+        seed: `${seasonId}-seed`,
+        competitors: [ALPHA, BETA],
+        openings: [ROOK_UP],
+        roundsPerPair: 1,
+        maxPlies: 1,
+      },
+      broadcast: { startAt: Date.now() + 1_000, msPerPly: 4_000 },
+      concurrency: 2,
+    });
+
+    expect(summaries).toHaveLength(2);
+    for (const summary of summaries) {
+      expect(summary.result).toBe("white");
+      expect(summary.reason).toBe("move-limit");
+      expect(summary.adjudicatedCp).toBe(500);
+    }
+
+    const rows = await arenaEnv.DB.prepare(
+      "SELECT adjudicated_cp AS cp FROM games WHERE season_id = ?",
+    )
+      .bind(seasonId)
+      .all<{ readonly cp: number | null }>();
+
+    expect(rows.results.map((row) => row.cp)).toEqual([500, 500]);
+  });
+
+  test("a game that ended on the board stores no material figure", async () => {
+    const seasonId = "coordinator-not-adjudicated";
+    mockMateProvider();
+
+    const summaries = await recordSeason(seasonStub(seasonId), requestFor(seasonId, 2));
+
+    for (const summary of summaries) {
+      expect(summary.reason).toBe("checkmate");
+      expect(Object.hasOwn(summary, "adjudicatedCp")).toBe(false);
+    }
+
+    const rows = await arenaEnv.DB.prepare(
+      "SELECT adjudicated_cp AS cp FROM games WHERE season_id = ?",
+    )
+      .bind(seasonId)
+      .all<{ readonly cp: number | null }>();
+
+    expect(rows.results.every((row) => row.cp === null)).toBe(true);
   });
 });

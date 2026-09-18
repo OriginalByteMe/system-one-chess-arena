@@ -354,6 +354,11 @@ export interface GameSummary {
   readonly openingId: string;
   readonly result: GameResult;
   readonly reason: TerminalReason;
+  /**
+   * Set when the result came from the material rule rather than the board, so
+   * the site can explain why a repetition was a win. See `TerminalState`.
+   */
+  readonly adjudicatedCp?: number;
   readonly plies: number;
   readonly pgn: string;
 }
@@ -430,6 +435,7 @@ export interface ResultEvent {
   readonly ply: number;
   readonly result: GameResult;
   readonly reason: TerminalReason;
+  readonly adjudicatedCp?: number;
 }
 
 export type LiveEvent = MoveEvent | ResultEvent;

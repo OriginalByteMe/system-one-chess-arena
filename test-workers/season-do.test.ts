@@ -72,7 +72,7 @@ const DIFFERENT_CONFIG: SeasonConfig = {
 
 const PROJECTION_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY (season_id, competitor, version))",
-  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, plies INTEGER NOT NULL, pgn TEXT NOT NULL, PRIMARY KEY (season_id, game_id))",
+  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, adjudicated_cp INTEGER, plies INTEGER NOT NULL, pgn TEXT NOT NULL, PRIMARY KEY (season_id, game_id))",
   "CREATE TABLE IF NOT EXISTS strategy_outcomes (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, strategy TEXT NOT NULL, picks INTEGER NOT NULL, score REAL NOT NULL, avg_confidence REAL NOT NULL, PRIMARY KEY (season_id, competitor, version, strategy))",
 ] as const;
 

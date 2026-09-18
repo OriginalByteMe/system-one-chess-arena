@@ -124,6 +124,10 @@ function parseGameRow(row: unknown): RecordedGame {
   const reason = requireOneOf(row.reason, "reason", TERMINAL_REASONS);
   const plies = requireInteger(row.plies, "plies");
   const pgn = requireString(row.pgn, "pgn");
+  const adjudicatedCp =
+    row.adjudicated_cp === null || row.adjudicated_cp === undefined
+      ? undefined
+      : requireInteger(row.adjudicated_cp, "adjudicated_cp");
   const matchId = optionalString(row.match_id, "match_id");
   const startAt = requireInteger(row.broadcast_start_at, "broadcast_start_at");
   const msPerPly = requireInteger(row.ms_per_ply, "ms_per_ply");
@@ -143,6 +147,7 @@ function parseGameRow(row: unknown): RecordedGame {
       openingId,
       result,
       reason,
+      ...(adjudicatedCp === undefined ? {} : { adjudicatedCp }),
       plies,
       pgn,
     },

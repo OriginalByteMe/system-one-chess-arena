@@ -356,6 +356,9 @@ export class SeasonDurableObject extends DurableObject<Env> {
         openingId: pairing.openingId,
         result: snapshot.finished.result,
         reason: snapshot.finished.reason,
+        ...(snapshot.finished.adjudicatedCp === undefined
+          ? {}
+          : { adjudicatedCp: snapshot.finished.adjudicatedCp }),
         plies: snapshot.ply,
         pgn: chess.pgn(),
       },
@@ -384,7 +387,7 @@ export class SeasonDurableObject extends DurableObject<Env> {
     }
 
     const insertGame = this.env.DB.prepare(
-      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, plies, pgn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
+      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, adjudicated_cp, plies, pgn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
     );
     for (const { summary } of games) {
       statements.push(
@@ -398,6 +401,7 @@ export class SeasonDurableObject extends DurableObject<Env> {
           summary.openingId,
           summary.result,
           summary.reason,
+          summary.adjudicatedCp ?? null,
           summary.plies,
           summary.pgn,
         ),
@@ -484,7 +488,7 @@ export class SeasonDurableObject extends DurableObject<Env> {
   ): Promise<void> {
     const { summary, decisions } = game;
     const insertGame = this.env.DB.prepare(
-      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, plies, pgn, broadcast_start_at, ms_per_ply) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
+      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, adjudicated_cp, plies, pgn, broadcast_start_at, ms_per_ply) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
     );
     const statements: D1PreparedStatement[] = [
       insertGame.bind(
@@ -497,6 +501,7 @@ export class SeasonDurableObject extends DurableObject<Env> {
         summary.openingId,
         summary.result,
         summary.reason,
+        summary.adjudicatedCp ?? null,
         summary.plies,
         summary.pgn,
         schedule.startAt,
