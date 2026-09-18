@@ -704,6 +704,8 @@ export interface PlaystyleChange {
 
 export interface AdaptationResult {
   readonly competitor: string;
+  /** The version the competitor went into the round with. */
+  readonly fromVersion: string;
   readonly outcome: RevisionOutcome;
   readonly playstyle?: PlaystyleChange;
   readonly rationale: string;

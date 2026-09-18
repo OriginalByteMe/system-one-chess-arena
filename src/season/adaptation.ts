@@ -55,7 +55,14 @@ export function nextSeasonConfig(
   throw new NotImplemented("season.adaptation.nextSeasonConfig");
 }
 
-/** Parent version and rationale for each adapted competitor, for lineage. */
+/**
+ * Parent version and rationale for each competitor that actually changed, for
+ * `registerVersions`.
+ *
+ * Contract: `parents[competitor]` is `result.fromVersion`, the version it came
+ * from, never the new one. Kept and blocked competitors are omitted, because
+ * nothing new needs registering for them.
+ */
 export function lineageFrom(results: readonly AdaptationResult[]): {
   readonly parents: { readonly [competitor: string]: string };
   readonly rationales: { readonly [competitor: string]: string };
