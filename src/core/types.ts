@@ -778,4 +778,12 @@ export interface RecordRequest {
   readonly broadcast: BroadcastSchedule;
   /** Games recorded at once. Bounded by the provider's rate limit. */
   readonly concurrency: number;
+  /**
+   * Competitor name to the version its manifest descends from. Required for
+   * any name already known with a different version, because a name is the
+   * cross-season identity and may not be reused by an unrelated lineage. This
+   * is how `lineageFrom` output reaches registration after adaptation.
+   */
+  readonly parents?: { readonly [competitor: string]: string };
+  readonly rationales?: { readonly [competitor: string]: string };
 }

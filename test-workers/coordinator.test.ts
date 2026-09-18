@@ -309,4 +309,51 @@ describe("SeasonDurableObject.record", () => {
       "season has already been started with another config",
     );
   });
+
+  test("a revised competitor records only when the request declares its parent", async () => {
+    mockMateProvider();
+    const first = requestFor("coordinator-lineage-1", 3);
+    await recordSeason(seasonStub("coordinator-lineage-1"), first);
+
+    // What adaptation produces: same name, new version, new sentence.
+    const evolved: CompetitorManifest = {
+      ...ALPHA,
+      version: "alpha-v2",
+      playstyle: "Choose the contract move, but faster.",
+    };
+    const config: SeasonConfig = {
+      ...configFor("coordinator-lineage-2"),
+      competitors: [evolved, BETA, GAMMA],
+    };
+    const undeclared: RecordRequest = {
+      config,
+      broadcast: { startAt: Date.now() + 1_000, msPerPly: 4_000 },
+      concurrency: 3,
+    };
+
+    await expect(
+      recordSeason(seasonStub("coordinator-lineage-2"), undeclared),
+    ).rejects.toThrow(/does not descend from a known version of alpha/);
+    // A rejected roster must not have started the season behind our back:
+    // `start` schedules a one-ply alarm per game, which would play it anyway.
+    await expect(
+      seasonStub("coordinator-lineage-2").standings(),
+    ).rejects.toThrow(/has not been started/);
+
+    await recordSeason(seasonStub("coordinator-lineage-3"), {
+      ...undeclared,
+      config: { ...config, seasonId: "coordinator-lineage-3" },
+      parents: { alpha: "alpha-v1" },
+      rationales: { alpha: "moved to a faster sentence" },
+    });
+
+    const row = await arenaEnv.DB.prepare(
+      "SELECT parent_version AS parent, rationale FROM competitor_versions WHERE competitor = ? AND version = ?",
+    )
+      .bind("alpha", "alpha-v2")
+      .first<{ readonly parent: string | null; readonly rationale: string | null }>();
+
+    expect(row?.parent).toBe("alpha-v1");
+    expect(row?.rationale).toBe("moved to a faster sentence");
+  });
 });

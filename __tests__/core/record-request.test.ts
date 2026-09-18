@@ -153,4 +153,36 @@ describe("parseRecordRequest", () => {
 
     expect(() => parseRecordRequest(raw)).toThrow(ContractViolation);
   });
+
+  test("carries the lineage maps adaptation produces", () => {
+    const raw = {
+      ...validRaw(),
+      parents: { "record-request-player": "v1" },
+      rationales: { "record-request-player": "swapped its worst strategy" },
+    };
+
+    const parsed = parseRecordRequest(raw);
+
+    expect(parsed.parents).toEqual({ "record-request-player": "v1" });
+    expect(parsed.rationales).toEqual({
+      "record-request-player": "swapped its worst strategy",
+    });
+  });
+
+  test("leaves the lineage maps absent when the roster has not changed", () => {
+    const parsed = parseRecordRequest(validRaw());
+
+    expect(Object.hasOwn(parsed, "parents")).toBe(false);
+    expect(Object.hasOwn(parsed, "rationales")).toBe(false);
+  });
+
+  test.each([
+    ["parents", { parents: { player: "" } }],
+    ["parents", { parents: { player: 7 } }],
+    ["parents", { parents: [] }],
+    ["rationales", { rationales: { player: null } }],
+    ["rationales", { rationales: "why" }],
+  ])("rejects a malformed %s map", (field, overrides) => {
+    expectViolation({ ...validRaw(), ...overrides }, new RegExp(field));
+  });
 });

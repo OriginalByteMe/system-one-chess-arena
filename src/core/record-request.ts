@@ -23,6 +23,8 @@ function violation(detail: string): never {
  *   integer.
  * - `concurrency` defaults to DEFAULT_CONCURRENCY and must be between 1 and
  *   MAX_CONCURRENCY.
+ * - `parents` and `rationales` are optional maps of competitor name to string,
+ *   carrying lineage from adaptation into registration.
  * - Anything else is a ContractViolation with a message naming the field.
  */
 export function parseRecordRequest(value: unknown): RecordRequest {
@@ -66,5 +68,37 @@ export function parseRecordRequest(value: unknown): RecordRequest {
     concurrency = rawConcurrency;
   }
 
-  return { config, broadcast: { startAt, msPerPly }, concurrency };
+  const parents = parseNameMap(raw.parents, "parents");
+  const rationales = parseNameMap(raw.rationales, "rationales");
+
+  return {
+    config,
+    broadcast: { startAt, msPerPly },
+    concurrency,
+    ...(parents === undefined ? {} : { parents }),
+    ...(rationales === undefined ? {} : { rationales }),
+  };
+}
+
+/**
+ * An optional map of competitor name to a single string. Absent stays absent,
+ * so an unchanged roster does not have to send empty objects.
+ */
+function parseNameMap(
+  value: unknown,
+  field: string,
+): { readonly [competitor: string]: string } | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    violation(`${field} must be an object`);
+  }
+  const entries = Object.entries(value);
+  for (const [name, entry] of entries) {
+    if (typeof entry !== "string" || entry.length === 0) {
+      violation(`${field}.${name} must be a non-empty string`);
+    }
+  }
+  return Object.fromEntries(
+    entries.map(([name, entry]) => [name, String(entry)]),
+  );
 }

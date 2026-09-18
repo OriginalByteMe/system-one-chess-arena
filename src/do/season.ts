@@ -221,9 +221,11 @@ export class SeasonDurableObject extends DurableObject<Env> {
    */
   async record(request: RecordRequest): Promise<readonly GameSummary[]> {
     const { config, broadcast, concurrency } = request;
+    // Identity first. `start` schedules a one-ply alarm per game, so a roster
+    // rejected after it would leave the season quietly playing itself out.
+    await this.registerCompetitors(request);
     await this.start(config);
     const { pairings } = this.storedSeason("record");
-    await this.registerCompetitors(config);
 
     const staggerMs = config.maxPlies * broadcast.msPerPly;
     const results = new Map<string, GameSummary>();
@@ -433,9 +435,17 @@ export class SeasonDurableObject extends DurableObject<Env> {
     return result.results.map(parseCompetitorVersionRow);
   }
 
-  private async registerCompetitors(config: SeasonConfig): Promise<void> {
+  private async registerCompetitors(request: RecordRequest): Promise<void> {
+    const { config } = request;
     const known = await this.knownVersions();
-    const { rows, violations } = registerVersions({ config, known });
+    const { rows, violations } = registerVersions({
+      config,
+      known,
+      ...(request.parents === undefined ? {} : { parents: request.parents }),
+      ...(request.rationales === undefined
+        ? {}
+        : { rationales: request.rationales }),
+    });
     if (violations.length > 0) {
       violation("record", violations.map((v) => v.detail).join("; "));
     }
