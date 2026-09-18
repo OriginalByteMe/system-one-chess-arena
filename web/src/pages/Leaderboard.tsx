@@ -1,4 +1,5 @@
 import { apiPath, useJson } from "../api.ts";
+import { dollars, percent, seconds } from "../format.ts";
 import { href } from "../route.ts";
 import { Loading, Shell } from "../Shell.tsx";
 import type { Leaderboard as LeaderboardResponse, LeaderboardRow } from "../../../src/core/types.ts";
@@ -41,11 +42,11 @@ function LeaderboardTable({ rows }: { readonly rows: readonly LeaderboardRow[] }
             <td>{`${row.wins}-${row.draws}-${row.losses}`}</td>
             <td>{row.score}</td>
             <td>{Math.round(row.elo)}</td>
-            <td>{`${Math.round(row.meanConfidence * 100)}%`}</td>
+            <td>{percent(row.meanConfidence)}</td>
             <td>{row.calibrationError.toFixed(3)}</td>
-            <td>{`${Math.round(row.fallbackRate * 100)}%`}</td>
-            <td>{`${(row.meanLatencyMs / 1000).toFixed(2)} s`}</td>
-            <td>{`$${row.costUsd.toFixed(4)}`}</td>
+            <td>{percent(row.fallbackRate)}</td>
+            <td>{seconds(row.meanLatencyMs)}</td>
+            <td>{dollars(row.costUsd)}</td>
           </tr>
         ))}
       </tbody>

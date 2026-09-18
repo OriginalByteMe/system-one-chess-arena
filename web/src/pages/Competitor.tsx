@@ -1,12 +1,9 @@
 import { apiPath, useJson } from "../api.ts";
 import { Loading, Shell } from "../Shell.tsx";
 import { calibrationPoints, lineageSteps, strategyMix } from "../competitor-model.ts";
+import { dollars, percent, seconds } from "../format.ts";
 import { href } from "../route.ts";
 import type { CompetitorProfile } from "../../../src/core/types.ts";
-
-function formatPercent(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
-}
 
 /** Phase 2: one competitor's record, calibration, lineage and rivals. */
 export function Competitor({ competitor }: { readonly competitor: string }) {
@@ -47,7 +44,7 @@ export function Competitor({ competitor }: { readonly competitor: string }) {
                     </tr>
                     <tr>
                       <th scope="row">Mean confidence</th>
-                      <td>{formatPercent(row.meanConfidence)}</td>
+                      <td>{percent(row.meanConfidence)}</td>
                     </tr>
                     <tr>
                       <th scope="row">Calibration error</th>
@@ -55,15 +52,15 @@ export function Competitor({ competitor }: { readonly competitor: string }) {
                     </tr>
                     <tr>
                       <th scope="row">Fallback rate</th>
-                      <td>{formatPercent(row.fallbackRate)}</td>
+                      <td>{percent(row.fallbackRate)}</td>
                     </tr>
                     <tr>
                       <th scope="row">Mean latency</th>
-                      <td>{(row.meanLatencyMs / 1000).toFixed(2)} s</td>
+                      <td>{seconds(row.meanLatencyMs)}</td>
                     </tr>
                     <tr>
                       <th scope="row">Cost</th>
-                      <td>${row.costUsd.toFixed(4)}</td>
+                      <td>{dollars(row.costUsd)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -74,7 +71,7 @@ export function Competitor({ competitor }: { readonly competitor: string }) {
                     <ol className="strategy-mix">
                       {mix.map((entry) => (
                         <li key={entry.strategy}>
-                          {entry.strategy}: {formatPercent(entry.share)}
+                          {entry.strategy}: {percent(entry.share)}
                         </li>
                       ))}
                     </ol>
@@ -102,8 +99,8 @@ export function Competitor({ competitor }: { readonly competitor: string }) {
                     <tbody>
                       {points.map((point) => (
                         <tr key={point.stated}>
-                          <td>{formatPercent(point.stated)}</td>
-                          <td>{formatPercent(point.actual)}</td>
+                          <td>{percent(point.stated)}</td>
+                          <td>{percent(point.actual)}</td>
                           <td>{point.decisions}</td>
                         </tr>
                       ))}

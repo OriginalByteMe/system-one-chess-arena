@@ -4,6 +4,7 @@ import { Board } from "../Board.tsx";
 import { Loading, Shell } from "../Shell.tsx";
 import { apiPath, useJson } from "../api.ts";
 import type { BoardOrientation } from "../board-model.ts";
+import { percent, seconds, titleCase } from "../format.ts";
 import { href } from "../route.ts";
 import {
   NO_GUESSES,
@@ -21,14 +22,6 @@ import type {
 
 /** Poll interval. The server caches to the next ply boundary anyway. */
 const POLL_MS = 1_000;
-
-function percent(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
-function titleCase(value: string): string {
-  return value.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
-}
 
 function GuessPanel({
   game,
@@ -219,7 +212,7 @@ export function Watch({
                           : percent(decision.confidence)}
                       </dd>
                       <dt>Latency</dt>
-                      <dd>{(decision.latencyMs / 1000).toFixed(2)} s</dd>
+                      <dd>{seconds(decision.latencyMs)}</dd>
                       <dt>Legal moves</dt>
                       <dd>{decision.legalMoveCount}</dd>
                       {decision.fallback === undefined ? null : (
