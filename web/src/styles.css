@@ -510,3 +510,245 @@ a:focus-visible {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Phase 2 pages. Deliberately plain: enough structure to read and click, no
+   visual design yet. The design pass replaces everything below this line.
+   --------------------------------------------------------------------------- */
+
+.page-note {
+  color: rgba(238, 244, 226, 0.62);
+  font-size: 0.86rem;
+  margin: 12px 0;
+}
+
+.page-note--error {
+  color: #f4a9a9;
+}
+
+.arena-shell table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.86rem;
+}
+
+.arena-shell th,
+.arena-shell td {
+  border-bottom: 1px solid rgba(238, 244, 226, 0.14);
+  padding: 7px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.arena-shell th:first-child,
+.arena-shell td:first-child {
+  text-align: left;
+}
+
+.arena-shell th {
+  color: rgba(238, 244, 226, 0.55);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.arena-shell h2 {
+  font-size: 1rem;
+  margin: 26px 0 10px;
+}
+
+.arena-shell h3 {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  margin: 18px 0 8px;
+  text-transform: uppercase;
+  color: rgba(238, 244, 226, 0.55);
+}
+
+.arena-shell a {
+  color: #d6ef6a;
+}
+
+.dashboard-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+}
+
+.dashboard-card {
+  border: 1px solid rgba(238, 244, 226, 0.16);
+  border-radius: 10px;
+  color: inherit;
+  display: block;
+  padding: 12px;
+  text-decoration: none;
+}
+
+.dashboard-card h2 {
+  font-size: 0.9rem;
+  margin: 0 0 10px;
+}
+
+.dashboard-card .board {
+  font-size: 0.5rem;
+}
+
+.dashboard-status,
+.dashboard-subtitle {
+  font-size: 0.78rem;
+  margin: 8px 0 0;
+}
+
+.dashboard-subtitle {
+  color: rgba(238, 244, 226, 0.6);
+}
+
+.chip {
+  background: rgba(214, 239, 106, 0.16);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  margin-right: 6px;
+  padding: 2px 8px;
+}
+
+.scrubber {
+  align-items: center;
+  display: flex;
+  font-size: 0.78rem;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.scrubber input[type="range"] {
+  flex: 1;
+}
+
+.bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bar {
+  align-items: center;
+  display: grid;
+  font-size: 0.78rem;
+  gap: 8px;
+  grid-template-columns: 4.2rem 1fr 2.6rem;
+  margin-bottom: 5px;
+}
+
+.bar-fill {
+  background: rgba(238, 244, 226, 0.22);
+  border-radius: 3px;
+  height: 9px;
+  min-width: 2px;
+}
+
+.bar--chosen .bar-fill {
+  background: #d6ef6a;
+}
+
+.guess-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.guess {
+  background: transparent;
+  border: 1px solid rgba(238, 244, 226, 0.26);
+  border-radius: 5px;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.74rem;
+  padding: 3px 7px;
+}
+
+.guess--picked {
+  background: #d6ef6a;
+  color: #12160c;
+}
+
+.bracket-columns {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+}
+
+.bracket-cell {
+  border: 1px solid rgba(238, 244, 226, 0.16);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 12px;
+  min-width: 190px;
+  padding: 10px;
+}
+
+.index-page form {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.index-page label {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  width: 6.5rem;
+}
+
+.index-page input {
+  background: rgba(238, 244, 226, 0.07);
+  border: 1px solid rgba(238, 244, 226, 0.22);
+  border-radius: 6px;
+  color: inherit;
+  font-family: inherit;
+  padding: 7px 10px;
+}
+
+.arena-shell dl {
+  display: grid;
+  font-size: 0.82rem;
+  gap: 4px 14px;
+  grid-template-columns: auto 1fr;
+  margin: 0;
+}
+
+.arena-shell dt {
+  color: rgba(238, 244, 226, 0.55);
+}
+
+.arena-shell dd {
+  margin: 0;
+  text-align: right;
+}
+
+.page-intro {
+  color: #cfccb6;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  margin: 0 0 26px;
+  max-width: 70ch;
+}
+
+/* A card board is a thumbnail: the full-size piece glyph would blow the
+   square's aspect ratio out and push the lower ranks off the card. */
+.dashboard-card .piece {
+  font-size: 1.15rem;
+}
+
+.dashboard-card .coordinate {
+  display: none;
+}
+
+.dashboard-card .board-frame {
+  box-shadow: none;
+  padding: 3px;
+}
