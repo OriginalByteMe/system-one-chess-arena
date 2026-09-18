@@ -110,6 +110,81 @@ describe("terminalState", () => {
     });
   });
 
+  describe("adjudication on final material", () => {
+    // Measured 2026-09-18: six of six recorded games drew by repetition or
+    // move limit, so a league that honours those draws can never separate
+    // anyone. A game with no progress is decided on material instead, with a
+    // band wide enough that a pawn is not a win.
+    function noProgress(fen: string): Position {
+      return { fen, history: [], ply: 100, turn: "white" };
+    }
+
+    test("a move-limit game is awarded to whoever is ahead on material", () => {
+      expect(terminalState(noProgress("4k3/8/8/8/8/8/8/R3K3 w - - 0 51"), 100)).toEqual({
+        reason: "move-limit",
+        result: "white",
+        adjudicatedCp: 500,
+      });
+
+      expect(terminalState(noProgress("4k3/pp6/8/8/8/8/8/4K3 w - - 0 51"), 100)).toEqual({
+        reason: "move-limit",
+        result: "black",
+        adjudicatedCp: -200,
+      });
+    });
+
+    test("a repetition is adjudicated on the same rule", () => {
+      // Repetition is only detected by replaying the history from the opening
+      // position, so the fixture has to be a real line: black takes the e4
+      // pawn with a knight and loses the knight for it, then both sides
+      // shuffle until the position repeats. Net 320 minus 100 to white.
+      const position: Position = {
+        fen: "rnbqkb1r/pppppppp/8/8/4N3/8/PPPP1PPP/R1BQKBNR b KQkq - 8 7",
+        history: [
+          "e4", "Nf6", "Nc3", "Ne4", "Nxe4", "Nc6", "Ng3",
+          "Nb8", "Ne4", "Nc6", "Ng3", "Nb8", "Ne4",
+        ],
+        ply: 13,
+        turn: "black",
+      };
+
+      expect(terminalState(position, 200)).toEqual({
+        reason: "threefold",
+        result: "white",
+        adjudicatedCp: 220,
+      });
+    });
+
+    test("inside the draw band the game stays a draw and says nothing about material", () => {
+      const drawn = terminalState(noProgress("4k3/pp6/8/8/8/8/8/4KB2 w - - 0 51"), 100);
+
+      expect(drawn).toEqual({ reason: "move-limit", result: "draw" });
+      expect(Object.hasOwn(drawn ?? {}, "adjudicatedCp")).toBe(false);
+    });
+
+    test("just outside the band is decisive", () => {
+      expect(terminalState(noProgress("4k3/p7/8/8/8/8/8/4KN2 w - - 0 51"), 100)).toEqual({
+        reason: "move-limit",
+        result: "white",
+        adjudicatedCp: 220,
+      });
+    });
+
+    test("a real ending is never adjudicated", () => {
+      for (const position of [
+        CHECKMATE_POSITION,
+        fixturePosition("stalemate"),
+        fixturePosition("insufficient-material"),
+        noProgress("4k3/8/8/8/8/8/8/R3K3 w - - 100 51"),
+      ]) {
+        const state = terminalState(position, 200);
+
+        expect(state).toBeDefined();
+        expect(Object.hasOwn(state ?? {}, "adjudicatedCp")).toBe(false);
+      }
+    });
+  });
+
   test("a checkmated position has no legal continuation", () => {
     expect(terminalState(CHECKMATE_POSITION, 200)).toEqual({
       reason: "checkmate",

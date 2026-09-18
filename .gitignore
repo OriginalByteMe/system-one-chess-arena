@@ -6,3 +6,6 @@ runs/
 .env*
 !.env.example
 worker-configuration.d.ts
+
+# Throwaway visual-direction prototypes. Never committed.
+design-previews/

@@ -25,6 +25,12 @@ export type TerminalReason =
 export interface TerminalState {
   readonly result: GameResult;
   readonly reason: TerminalReason;
+  /**
+   * Material balance in centipawns from white's side, present only when a
+   * game with no progress was awarded on material rather than drawn. Absent
+   * on a genuine ending, and absent when the rule declined inside its band.
+   */
+  readonly adjudicatedCp?: number;
 }
 
 /** Score awarded to one side for one game. */

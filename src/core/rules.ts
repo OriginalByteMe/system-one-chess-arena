@@ -1,5 +1,6 @@
 import { Chess } from "chess.js";
 import { ContractViolation } from "./errors";
+import { PIECE_VALUES } from "./features";
 import type { Colour, Fen, Opening, San, TerminalState, Uci } from "./types";
 
 export interface Position {
@@ -117,6 +118,48 @@ export function applyMove(position: Position, move: Uci): Position {
   }
 }
 
+/**
+ * How far ahead a side must be, in centipawns, before a game with no progress
+ * is awarded rather than drawn. A pawn is not a win; a knight is.
+ */
+export const ADJUDICATION_BAND_CP = 150;
+
+/** Material balance from white's side, in centipawns, kings excluded. */
+function materialBalanceCp(chess: Chess): number {
+  let balance = 0;
+  for (const row of chess.board()) {
+    for (const square of row) {
+      if (square === null || square.type === "k") continue;
+      const value = PIECE_VALUES[square.type];
+      balance += square.color === "w" ? value : -value;
+    }
+  }
+  return balance;
+}
+
+/**
+ * Decides a game that ended without progress.
+ *
+ * Measured 2026-09-18: six of six recorded games drew by repetition or move
+ * limit, so honouring those draws leaves every rating at its starting value
+ * forever. Final material is lopsided and informative where the result is not,
+ * so a no-progress game is awarded to whoever is clearly ahead.
+ *
+ * `adjudicatedCp` is present only when the rule actually decided a winner, so
+ * a genuine drawn ending stays indistinguishable from one the rule declined.
+ */
+function adjudicate(chess: Chess, reason: "threefold" | "move-limit"): TerminalState {
+  const balance = materialBalanceCp(chess);
+  if (Math.abs(balance) <= ADJUDICATION_BAND_CP) {
+    return { reason, result: "draw" };
+  }
+  return {
+    reason,
+    result: balance > 0 ? "white" : "black",
+    adjudicatedCp: balance,
+  };
+}
+
 export function terminalState(
   position: Position,
   maxPlies: number,
@@ -141,10 +184,10 @@ export function terminalState(
   if (played !== undefined &&
       played.fen() === position.fen &&
       played.isThreefoldRepetition()) {
-    return { reason: "threefold", result: "draw" };
+    return adjudicate(chess, "threefold");
   }
   if (position.ply >= maxPlies) {
-    return { reason: "move-limit", result: "draw" };
+    return adjudicate(chess, "move-limit");
   }
   return undefined;
 }
