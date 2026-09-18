@@ -1,7 +1,8 @@
-import { NotImplemented } from "../core/errors.ts";
 import type {
+  CalibrationBucket,
   CalibrationCurve,
   DecisionRecord,
+  GameScore,
   GameSummary,
 } from "../core/types.ts";
 
@@ -18,6 +19,26 @@ export const CALIBRATION_BUCKETS: readonly (readonly [number, number])[] = [
   [0.8, 0.9],
   [0.9, 1],
 ];
+
+function outcomeFor(decision: DecisionRecord, game: GameSummary): GameScore {
+  if (decision.colour === "white") {
+    return game.result === "white" ? 1 : game.result === "black" ? 0 : 0.5;
+  }
+  return game.result === "black" ? 1 : game.result === "white" ? 0 : 0.5;
+}
+
+function bucketIndexFor(confidence: number): number {
+  for (let index = 0; index < CALIBRATION_BUCKETS.length; index += 1) {
+    const bounds = CALIBRATION_BUCKETS[index];
+    if (bounds === undefined) continue;
+    const [lower, upper] = bounds;
+    const isLast = index === CALIBRATION_BUCKETS.length - 1;
+    if (confidence >= lower && (confidence < upper || (isLast && confidence <= upper))) {
+      return index;
+    }
+  }
+  return CALIBRATION_BUCKETS.length - 1;
+}
 
 /**
  * Stated confidence against what actually happened, which is the chart that
@@ -38,10 +59,35 @@ export function calibrationCurve(
   decisions: readonly DecisionRecord[],
   games: readonly GameSummary[],
 ): CalibrationCurve {
-  void competitor;
-  void decisions;
-  void games;
-  throw new NotImplemented("season.calibration.calibrationCurve");
+  const gamesById = new Map(games.map((entry) => [entry.gameId, entry]));
+  const named = decisions.filter((entry) => entry.competitor === competitor);
+
+  const counts = CALIBRATION_BUCKETS.map(() => 0);
+  const confidenceSums = CALIBRATION_BUCKETS.map(() => 0);
+  const scoreSums = CALIBRATION_BUCKETS.map(() => 0);
+
+  for (const decision of named) {
+    if (decision.confidence === undefined) continue;
+    const game = gamesById.get(decision.gameId);
+    if (game === undefined) continue;
+    const index = bucketIndexFor(decision.confidence);
+    counts[index] = (counts[index] ?? 0) + 1;
+    confidenceSums[index] = (confidenceSums[index] ?? 0) + decision.confidence;
+    scoreSums[index] = (scoreSums[index] ?? 0) + outcomeFor(decision, game);
+  }
+
+  const buckets: CalibrationBucket[] = CALIBRATION_BUCKETS.map(([lower, upper], index) => {
+    const count = counts[index] ?? 0;
+    return {
+      lower,
+      upper,
+      decisions: count,
+      meanConfidence: count === 0 ? 0 : (confidenceSums[index] ?? 0) / count,
+      meanScore: count === 0 ? 0 : (scoreSums[index] ?? 0) / count,
+    };
+  });
+
+  return { competitor, buckets, error: brierScore(named, games) };
 }
 
 /** Brier score alone, for the leaderboard column. */
@@ -49,7 +95,16 @@ export function brierScore(
   decisions: readonly DecisionRecord[],
   games: readonly GameSummary[],
 ): number {
-  void decisions;
-  void games;
-  throw new NotImplemented("season.calibration.brierScore");
+  const gamesById = new Map(games.map((entry) => [entry.gameId, entry]));
+  let sumSquaredError = 0;
+  let scored = 0;
+  for (const decision of decisions) {
+    if (decision.confidence === undefined) continue;
+    const game = gamesById.get(decision.gameId);
+    if (game === undefined) continue;
+    const outcome = outcomeFor(decision, game);
+    sumSquaredError += (decision.confidence - outcome) ** 2;
+    scored += 1;
+  }
+  return scored === 0 ? 0 : sumSquaredError / scored;
 }

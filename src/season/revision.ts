@@ -1,4 +1,4 @@
-import { ContractViolation, NotImplemented } from "../core/errors.ts";
+import { ContractViolation } from "../core/errors.ts";
 import { manifestVersion } from "../core/manifest.ts";
 import {
   STRATEGY_LABELS,
@@ -179,8 +179,43 @@ export async function reviseStrategies(
  * free text. Free text would let a persona rewrite itself into anything.
  */
 export function buildPlaystyleRequest(args: RevisionArgs): SystemOneRequest {
-  void args;
-  throw new NotImplemented("season.revision.buildPlaystyleRequest");
+  const alternative = playstyleAlternative(args.manifest, args.record);
+  const options = [args.manifest.playstyle, alternative];
+
+  const strategyState: Record<string, StateValue> = {};
+  for (const strategy of args.manifest.strategies) {
+    const stats = statsFor(
+      args.record,
+      strategy,
+      "season.revision.buildPlaystyleRequest",
+    );
+    strategyState[`strategy.${strategy}.picks`] = stats.picks;
+    strategyState[`strategy.${strategy}.score`] = stats.score;
+    strategyState[`strategy.${strategy}.avgConfidence`] = stats.avgConfidence;
+  }
+
+  return {
+    kind: "systemone",
+    model: args.manifest.model,
+    state: {
+      competitor: args.manifest.name,
+      recordVersion: args.record.version,
+      playstyle: args.manifest.playstyle,
+      games: args.record.games,
+      wins: args.record.wins,
+      draws: args.record.draws,
+      losses: args.record.losses,
+      ...strategyState,
+    },
+    questions: {
+      playstyle: {
+        type: "choice",
+        instructions:
+          "Choose whether to keep the current playstyle sentence or adopt the alternative.",
+        options,
+      },
+    },
+  };
 }
 
 /**
@@ -190,7 +225,73 @@ export function buildPlaystyleRequest(args: RevisionArgs): SystemOneRequest {
  * changes, so the strategy list, features, budget and fallback are identical;
  * the version is rehashed. A provider failure keeps the manifest.
  */
-export function revisePlaystyle(args: RevisionArgs): Promise<RevisionOutcome> {
-  void args;
-  throw new NotImplemented("season.revision.revisePlaystyle");
+export async function revisePlaystyle(args: RevisionArgs): Promise<RevisionOutcome> {
+  const fewestPicks = Math.min(
+    ...args.manifest.strategies.map(
+      (strategy) => args.record.byStrategy[strategy]?.picks ?? 0,
+    ),
+  );
+  if (fewestPicks < args.minSamplesPerStrategy) {
+    return {
+      kind: "blocked",
+      reason: "insufficient-samples",
+      needed: args.minSamplesPerStrategy - fewestPicks,
+    };
+  }
+
+  let response;
+  try {
+    response = await args.provider.ask(buildPlaystyleRequest(args));
+  } catch {
+    return { kind: "kept", version: args.manifest.version };
+  }
+
+  if (response.kind !== "systemone") {
+    return { kind: "kept", version: args.manifest.version };
+  }
+
+  const answer = response.answers.playstyle;
+  if (answer === undefined || answer.choice === args.manifest.playstyle) {
+    return { kind: "kept", version: args.manifest.version };
+  }
+
+  const { version: _version, ...fields } = args.manifest;
+  const revisedFields = { ...fields, playstyle: answer.choice };
+  return {
+    kind: "revised",
+    manifest: {
+      ...revisedFields,
+      version: manifestVersion(revisedFields),
+    },
+  };
+}
+
+/**
+ * A deterministic alternative playstyle sentence derived from which declared
+ * strategy has scored best for this competitor so far. Never free text: the
+ * sentence is one of a small, record-derived set.
+ */
+function playstyleAlternative(
+  manifest: CompetitorManifest,
+  record: PlayerRecord,
+): string {
+  const ordered = STRATEGY_LABELS.filter((strategy) =>
+    manifest.strategies.includes(strategy),
+  );
+  const first = ordered[0];
+  if (first === undefined) {
+    return `${manifest.playstyle} Keep adapting as data allows.`;
+  }
+
+  let best = first;
+  let bestStats = statsFor(record, best, "season.revision.buildPlaystyleRequest");
+  for (const strategy of ordered.slice(1)) {
+    const stats = statsFor(record, strategy, "season.revision.buildPlaystyleRequest");
+    if (stats.score / stats.picks > bestStats.score / bestStats.picks) {
+      best = strategy;
+      bestStats = stats;
+    }
+  }
+
+  return `Lean into ${best} play, the strategy scoring best over recent games.`;
 }

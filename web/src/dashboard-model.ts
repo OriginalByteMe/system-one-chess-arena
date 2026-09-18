@@ -1,11 +1,24 @@
-import { NotImplemented } from "../../src/core/errors.ts";
 import type { DashboardEntry } from "../../src/core/types.ts";
+import { TRAIT_RULES } from "../../src/rivalry/traits.ts";
 
 export interface DashboardCard {
   readonly entry: DashboardEntry;
   /** "Nemesis" style chips, already resolved to labels. */
   readonly rivalryLabels: readonly string[];
   readonly subtitle: string;
+}
+
+const TRAIT_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
+  TRAIT_RULES.map((rule) => [rule.id, rule.label]),
+);
+
+function subtitleFor(entry: DashboardEntry): string {
+  if (entry.strategy === undefined || entry.confidence === undefined) {
+    return "Waiting for the game to start.";
+  }
+  const label = entry.strategy.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const pct = Math.round(entry.confidence * 100);
+  return `${label} · ${pct}% confidence`;
 }
 
 /**
@@ -21,6 +34,11 @@ export interface DashboardCard {
 export function dashboardCards(
   entries: readonly DashboardEntry[],
 ): readonly DashboardCard[] {
-  void entries;
-  throw new NotImplemented("web.dashboardModel.dashboardCards");
+  return entries.map((entry) => ({
+    entry,
+    rivalryLabels: entry.rivalry
+      .map((id) => TRAIT_LABELS[id])
+      .filter((label): label is string => label !== undefined),
+    subtitle: subtitleFor(entry),
+  }));
 }

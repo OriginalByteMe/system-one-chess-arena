@@ -1,14 +1,31 @@
-import { NotImplemented } from "../core/errors.ts";
-import type { GameSummary, HeadToHead } from "../core/types.ts";
+import type { GameSummary, HeadToHead, HeadToHeadResult } from "../core/types.ts";
 
 /** How many recent results a trait rule may look at. */
 export const RECENT_LIMIT: number = 8;
 
 /** Order-independent key for a pair, for maps and cache keys. */
 export function pairKey(a: string, b: string): string {
-  void a;
-  void b;
-  throw new NotImplemented("rivalry.headToHead.pairKey");
+  return [a, b].sort().join("\u0000");
+}
+
+interface Accumulator {
+  readonly competitor: string;
+  readonly opponent: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  readonly results: HeadToHeadResult[];
+  readonly gameIds: string[];
+}
+
+function streakOf(results: readonly HeadToHeadResult[]): number {
+  const last = results[results.length - 1];
+  if (last === undefined) return 0;
+  let streak = 0;
+  for (let i = results.length - 1; i >= 0 && results[i] === last; i -= 1) {
+    streak += 1;
+  }
+  return streak;
 }
 
 /**
@@ -27,8 +44,43 @@ export function pairKey(a: string, b: string): string {
 export function headToHeadFrom(
   games: readonly GameSummary[],
 ): readonly HeadToHead[] {
-  void games;
-  throw new NotImplemented("rivalry.headToHead.headToHeadFrom");
+  const byDirection = new Map<string, Accumulator>();
+
+  function record(competitor: string, opponent: string, result: HeadToHeadResult, gameId: string): void {
+    const key = `${competitor}\u0000${opponent}`;
+    let acc = byDirection.get(key);
+    if (!acc) {
+      acc = { competitor, opponent, wins: 0, losses: 0, draws: 0, results: [], gameIds: [] };
+      byDirection.set(key, acc);
+    }
+    if (result === "win") acc.wins += 1;
+    else if (result === "loss") acc.losses += 1;
+    else acc.draws += 1;
+    acc.results.push(result);
+    acc.gameIds.push(gameId);
+  }
+
+  for (const game of games) {
+    const white = game.white.name;
+    const black = game.black.name;
+    const whiteResult: HeadToHeadResult =
+      game.result === "draw" ? "draw" : game.result === "white" ? "win" : "loss";
+    const blackResult: HeadToHeadResult =
+      game.result === "draw" ? "draw" : game.result === "white" ? "loss" : "win";
+    record(white, black, whiteResult, game.gameId);
+    record(black, white, blackResult, game.gameId);
+  }
+
+  return Array.from(byDirection.values(), (acc) => ({
+    competitor: acc.competitor,
+    opponent: acc.opponent,
+    wins: acc.wins,
+    losses: acc.losses,
+    draws: acc.draws,
+    recent: acc.results.slice(-RECENT_LIMIT),
+    gameIds: acc.gameIds.slice(-RECENT_LIMIT),
+    streak: streakOf(acc.results),
+  }));
 }
 
 /** One direction, with an empty history when the pair has never met. */
@@ -37,8 +89,23 @@ export function headToHeadFor(
   opponent: string,
   games: readonly GameSummary[],
 ): HeadToHead {
-  void competitor;
-  void opponent;
-  void games;
-  throw new NotImplemented("rivalry.headToHead.headToHeadFor");
+  const relevant = games.filter((game) => {
+    const names = [game.white.name, game.black.name];
+    return names.includes(competitor) && names.includes(opponent);
+  });
+  const found = headToHeadFrom(relevant).find(
+    (h) => h.competitor === competitor && h.opponent === opponent,
+  );
+  return (
+    found ?? {
+      competitor,
+      opponent,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      recent: [],
+      gameIds: [],
+      streak: 0,
+    }
+  );
 }

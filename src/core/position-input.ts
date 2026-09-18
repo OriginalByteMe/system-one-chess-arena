@@ -1,4 +1,4 @@
-import { computeFeatures, filterFeatures } from "./features.ts";
+import { computeDeclaredFeatures } from "./features.ts";
 import { legalMoves } from "./rules.ts";
 import type { Position } from "./rules.ts";
 import type {
@@ -28,9 +28,10 @@ export function buildPositionInput(args: PositionInputArgs): PositionInput {
       Math.max(0, args.position.history.length - args.persona.historyPlies),
     ),
     legalMoves: legalMoves(args.position),
-    features: filterFeatures(
-      computeFeatures(args.position, args.lastMove),
+    features: computeDeclaredFeatures(
+      args.position,
       args.persona.features,
+      args.lastMove,
     ),
     persona: args.persona,
     budget: args.persona.budget,

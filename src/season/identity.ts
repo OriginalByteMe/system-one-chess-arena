@@ -1,4 +1,4 @@
-import { NotImplemented } from "../core/errors.ts";
+import { ContractViolation } from "../core/errors.ts";
 import type {
   CompetitorVersionRow,
   NameViolation,
@@ -40,8 +40,88 @@ export interface Registration {
  * - `rows` is empty when there is any violation.
  */
 export function registerVersions(args: RegistrationArgs): Registration {
-  void args;
-  throw new NotImplemented("season.identity.registerVersions");
+  const { config, known, parents, rationales } = args;
+  const violations: NameViolation[] = [];
+  const rows: CompetitorVersionRow[] = [];
+
+  const nameCounts = new Map<string, number>();
+  for (const competitor of config.competitors) {
+    nameCounts.set(competitor.name, (nameCounts.get(competitor.name) ?? 0) + 1);
+  }
+
+  for (const competitor of config.competitors) {
+    const name = competitor.name;
+    let invalid = false;
+
+    if ((nameCounts.get(name) ?? 0) > 1) {
+      violations.push({
+        competitor: name,
+        reason: "duplicate-in-season",
+        detail: `${name} appears more than once in season ${config.seasonId}`,
+      });
+      invalid = true;
+    }
+
+    if (RESERVED_NAMES.includes(name.toLowerCase())) {
+      violations.push({
+        competitor: name,
+        reason: "reserved-name",
+        detail: `${name} is a reserved name`,
+      });
+      invalid = true;
+    }
+
+    if (invalid) continue;
+
+    const priorVersions = known.filter((r) => r.competitor === name);
+
+    if (priorVersions.length === 0) {
+      rows.push({
+        competitor: name,
+        version: competitor.version,
+        seasonId: config.seasonId,
+        manifest: competitor,
+        parentVersion: undefined,
+        traits: [],
+        rationale: rationales?.[name],
+      });
+      continue;
+    }
+
+    if (priorVersions.some((r) => r.version === competitor.version)) {
+      // Already known: replaying a season is idempotent.
+      continue;
+    }
+
+    const lineage = lineageOf(name, known);
+    const declaredParent = parents?.[name];
+    const parentInLineage =
+      declaredParent !== undefined && lineage.some((r) => r.version === declaredParent);
+
+    if (!parentInLineage) {
+      violations.push({
+        competitor: name,
+        reason: "version-not-derived",
+        detail: `${name} version ${competitor.version} does not descend from a known version of ${name}`,
+      });
+      continue;
+    }
+
+    rows.push({
+      competitor: name,
+      version: competitor.version,
+      seasonId: config.seasonId,
+      manifest: competitor,
+      parentVersion: declaredParent,
+      traits: [],
+      rationale: rationales?.[name],
+    });
+  }
+
+  return {
+    rows: violations.length === 0 ? rows : [],
+    violations,
+  };
 }
 
 /**
@@ -52,7 +132,48 @@ export function lineageOf(
   competitor: string,
   rows: readonly CompetitorVersionRow[],
 ): readonly CompetitorVersionRow[] {
-  void competitor;
-  void rows;
-  throw new NotImplemented("season.identity.lineageOf");
+  const own = rows.filter((r) => r.competitor === competitor);
+  if (own.length === 0) return [];
+
+  const byVersion = new Map(own.map((r) => [r.version, r]));
+  const childOf = new Map<string, CompetitorVersionRow>();
+  let root: CompetitorVersionRow | undefined;
+
+  for (const r of own) {
+    if (r.parentVersion === undefined) {
+      root = r;
+      continue;
+    }
+    if (!byVersion.has(r.parentVersion)) {
+      throw new ContractViolation(
+        "season.identity.lineageOf",
+        `${competitor} version ${r.version} has a missing parent ${r.parentVersion}`,
+      );
+    }
+    childOf.set(r.parentVersion, r);
+  }
+
+  if (root === undefined) {
+    throw new ContractViolation(
+      "season.identity.lineageOf",
+      `${competitor} has a version cycle: no root version found`,
+    );
+  }
+
+  const chain: CompetitorVersionRow[] = [root];
+  const seen = new Set<string>([root.version]);
+  let current = root;
+  for (let next = childOf.get(current.version); next !== undefined; next = childOf.get(current.version)) {
+    if (seen.has(next.version)) {
+      throw new ContractViolation(
+        "season.identity.lineageOf",
+        `${competitor} has a version cycle involving ${next.version}`,
+      );
+    }
+    chain.push(next);
+    seen.add(next.version);
+    current = next;
+  }
+
+  return chain;
 }

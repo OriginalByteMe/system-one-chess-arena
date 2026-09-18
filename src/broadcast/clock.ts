@@ -1,6 +1,7 @@
-import { NotImplemented } from "../core/errors.ts";
+import { ContractViolation } from "../core/errors.ts";
 import type {
   BroadcastSchedule,
+  BroadcastStatus,
   EpochMs,
   RevealWindow,
 } from "../core/types.ts";
@@ -26,10 +27,34 @@ export function revealWindow(
   moves: number,
   now: EpochMs,
 ): RevealWindow {
-  void schedule;
-  void moves;
-  void now;
-  throw new NotImplemented("broadcast.clock.revealWindow");
+  if (!Number.isInteger(schedule.msPerPly) || schedule.msPerPly <= 0) {
+    throw new ContractViolation(
+      "broadcast.clock.revealWindow",
+      `msPerPly must be a positive integer: ${schedule.msPerPly}`,
+    );
+  }
+  if (!Number.isInteger(moves) || moves < 0) {
+    throw new ContractViolation(
+      "broadcast.clock.revealWindow",
+      `moves must be a non-negative integer: ${moves}`,
+    );
+  }
+
+  const elapsedPlies = Math.floor((now - schedule.startAt) / schedule.msPerPly);
+  const revealedPlies = Math.min(moves, Math.max(0, elapsedPlies));
+  const status: BroadcastStatus = now < schedule.startAt
+    ? "scheduled"
+    : revealedPlies >= moves
+      ? "finished"
+      : "on-air";
+
+  if (status === "finished") return { status, revealedPlies };
+
+  return {
+    status,
+    revealedPlies,
+    nextBoundaryAt: schedule.startAt + (revealedPlies + 1) * schedule.msPerPly,
+  };
 }
 
 /** When the last recorded decision of a game becomes visible. */
@@ -37,7 +62,5 @@ export function broadcastEndsAt(
   schedule: BroadcastSchedule,
   moves: number,
 ): EpochMs {
-  void schedule;
-  void moves;
-  throw new NotImplemented("broadcast.clock.broadcastEndsAt");
+  return schedule.startAt + moves * schedule.msPerPly;
 }

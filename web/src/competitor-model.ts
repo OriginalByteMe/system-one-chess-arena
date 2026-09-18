@@ -1,8 +1,9 @@
-import { NotImplemented } from "../../src/core/errors.ts";
 import type {
   CalibrationCurve,
   CompetitorProfile,
   CompetitorVersionRow,
+  StrategyLabel,
+  StrategyStats,
 } from "../../src/core/types.ts";
 
 export interface CalibrationPoint {
@@ -22,8 +23,13 @@ export interface CalibrationPoint {
 export function calibrationPoints(
   curve: CalibrationCurve,
 ): readonly CalibrationPoint[] {
-  void curve;
-  throw new NotImplemented("web.competitorModel.calibrationPoints");
+  return curve.buckets
+    .filter((bucket) => bucket.decisions > 0)
+    .map((bucket) => ({
+      stated: (bucket.lower + bucket.upper) / 2,
+      actual: bucket.meanScore,
+      decisions: bucket.decisions,
+    }));
 }
 
 export interface LineageStep {
@@ -46,14 +52,60 @@ export interface LineageStep {
 export function lineageSteps(
   lineage: readonly CompetitorVersionRow[],
 ): readonly LineageStep[] {
-  void lineage;
-  throw new NotImplemented("web.competitorModel.lineageSteps");
+  const byVersion = new Map(lineage.map((row) => [row.version, row]));
+
+  return lineage.map((row) => {
+    const parent =
+      row.parentVersion !== undefined ? byVersion.get(row.parentVersion) : undefined;
+    const currentStrategies = new Set<string>(row.manifest.strategies);
+    const parentStrategies = new Set<string>(parent?.manifest.strategies ?? []);
+    const added =
+      parent === undefined
+        ? []
+        : row.manifest.strategies.filter((strategy) => !parentStrategies.has(strategy));
+    const removed =
+      parent === undefined
+        ? []
+        : parent.manifest.strategies.filter((strategy) => !currentStrategies.has(strategy));
+    const playstyleChanged =
+      parent !== undefined && parent.manifest.playstyle !== row.manifest.playstyle;
+
+    const summary =
+      parent === undefined
+        ? "Original entry."
+        : playstyleChanged && (added.length > 0 || removed.length > 0)
+          ? "Changed playstyle and strategy mix."
+          : playstyleChanged
+            ? "Changed playstyle."
+            : added.length > 0 || removed.length > 0
+              ? "Changed strategy mix."
+              : "No changes.";
+
+    return {
+      version: row.version,
+      seasonId: row.seasonId,
+      summary,
+      added,
+      removed,
+      playstyleChanged,
+      rationale: row.rationale,
+    };
+  });
 }
 
 /** Strategy mix as percentages, most picked first. */
 export function strategyMix(
   profile: CompetitorProfile,
 ): readonly { readonly strategy: string; readonly share: number }[] {
-  void profile;
-  throw new NotImplemented("web.competitorModel.strategyMix");
+  const entries = Object.entries(profile.strategyMix) as readonly [
+    StrategyLabel,
+    StrategyStats | undefined,
+  ][];
+  const totalPicks = entries.reduce((sum, [, stats]) => sum + (stats?.picks ?? 0), 0);
+  if (totalPicks === 0) return [];
+
+  return entries
+    .filter((entry): entry is [StrategyLabel, StrategyStats] => entry[1] !== undefined)
+    .map(([strategy, stats]) => ({ strategy, share: stats.picks / totalPicks }))
+    .sort((a, b) => b.share - a.share);
 }

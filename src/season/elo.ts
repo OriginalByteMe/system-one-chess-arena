@@ -1,4 +1,3 @@
-import { NotImplemented } from "../core/errors.ts";
 import type {
   CompetitorRef,
   EloRating,
@@ -82,7 +81,41 @@ export function ratingsByCompetitor(
   games: readonly GameSummary[],
   k: number = DEFAULT_K,
 ): readonly EloRating[] {
-  void games;
-  void k;
-  throw new NotImplemented("season.elo.ratingsByCompetitor");
+  type MutableEloRating = {
+    -readonly [Key in keyof EloRating]: EloRating[Key];
+  };
+  const byName = new Map<string, MutableEloRating>();
+  const ratings: MutableEloRating[] = [];
+
+  function getRating(competitor: CompetitorRef): MutableEloRating {
+    let rating = byName.get(competitor.name);
+    if (rating === undefined) {
+      rating = {
+        competitor: competitor.name,
+        version: competitor.version,
+        rating: DEFAULT_ELO,
+        games: 0,
+      };
+      byName.set(competitor.name, rating);
+      ratings.push(rating);
+    } else {
+      rating.version = competitor.version;
+    }
+    return rating;
+  }
+
+  for (const game of games) {
+    const white = getRating(game.white);
+    const black = getRating(game.black);
+    const whiteScore: GameScore =
+      game.result === "white" ? 1 : game.result === "black" ? 0 : 0.5;
+    const updated = updateElo(white.rating, black.rating, whiteScore, k);
+
+    white.rating = updated.a;
+    white.games += 1;
+    black.rating = updated.b;
+    black.games += 1;
+  }
+
+  return ratings;
 }

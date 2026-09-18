@@ -1,11 +1,12 @@
-import { NotImplemented } from "../core/errors.ts";
 import type {
   AdaptationResult,
   CompetitorManifest,
+  PlaystyleChange,
   PlayerRecord,
   Provider,
   SeasonConfig,
 } from "../core/types.ts";
+import { buildCandidate, reviseStrategies, revisePlaystyle } from "./revision.ts";
 
 export interface AdaptationArgs {
   readonly manifests: readonly CompetitorManifest[];
@@ -31,11 +32,82 @@ export interface AdaptationArgs {
  * - Every result carries a rationale, because the site shows why a competitor
  *   changed.
  */
-export function adaptSeason(
+export async function adaptSeason(
   args: AdaptationArgs,
 ): Promise<readonly AdaptationResult[]> {
-  void args;
-  throw new NotImplemented("season.adaptation.adaptSeason");
+  const recordsByCompetitor = new Map(
+    args.records.map((record) => [record.competitor, record]),
+  );
+
+  const results: AdaptationResult[] = [];
+  for (const manifest of args.manifests) {
+    const record = recordsByCompetitor.get(manifest.name);
+    if (record === undefined) {
+      results.push({
+        competitor: manifest.name,
+        fromVersion: manifest.version,
+        outcome: {
+          kind: "blocked",
+          reason: "insufficient-samples",
+          needed: args.minSamplesPerStrategy,
+        },
+        rationale: "no record to judge this competitor by",
+      });
+      continue;
+    }
+
+    const strategyOutcome = await reviseStrategies({
+      manifest,
+      record,
+      provider: args.provider,
+      minSamplesPerStrategy: args.minSamplesPerStrategy,
+    });
+
+    if (strategyOutcome.kind === "blocked") {
+      results.push({
+        competitor: manifest.name,
+        fromVersion: manifest.version,
+        outcome: strategyOutcome,
+        rationale: `too few games to judge fairly, needs ${strategyOutcome.needed} more`,
+      });
+      continue;
+    }
+
+    let currentManifest =
+      strategyOutcome.kind === "revised" ? strategyOutcome.manifest : manifest;
+    let rationale =
+      strategyOutcome.kind === "revised"
+        ? (buildCandidate(manifest, record)?.rationale ?? "revised its strategy set")
+        : "kept a strategy set that is already working";
+
+    let playstyle: PlaystyleChange | undefined;
+    if (args.revisePlaystyle) {
+      const playstyleOutcome = await revisePlaystyle({
+        manifest: currentManifest,
+        record,
+        provider: args.provider,
+        minSamplesPerStrategy: args.minSamplesPerStrategy,
+      });
+      if (playstyleOutcome.kind === "revised") {
+        playstyle = { from: manifest.playstyle, to: playstyleOutcome.manifest.playstyle };
+        currentManifest = playstyleOutcome.manifest;
+        rationale = `${rationale}; revised its playstyle sentence`;
+      }
+    }
+
+    results.push({
+      competitor: manifest.name,
+      fromVersion: manifest.version,
+      outcome:
+        currentManifest === manifest
+          ? { kind: "kept", version: manifest.version }
+          : { kind: "revised", manifest: currentManifest },
+      playstyle,
+      rationale,
+    });
+  }
+
+  return results;
 }
 
 /**
@@ -48,11 +120,15 @@ export function nextSeasonConfig(
   seasonId: string,
   seed: string,
 ): SeasonConfig {
-  void previous;
-  void results;
-  void seasonId;
-  void seed;
-  throw new NotImplemented("season.adaptation.nextSeasonConfig");
+  const resultByCompetitor = new Map(
+    results.map((result) => [result.competitor, result]),
+  );
+  const competitors = previous.competitors.map((competitor) => {
+    const result = resultByCompetitor.get(competitor.name);
+    return result?.outcome.kind === "revised" ? result.outcome.manifest : competitor;
+  });
+
+  return { ...previous, seasonId, seed, competitors };
 }
 
 /**
@@ -67,6 +143,13 @@ export function lineageFrom(results: readonly AdaptationResult[]): {
   readonly parents: { readonly [competitor: string]: string };
   readonly rationales: { readonly [competitor: string]: string };
 } {
-  void results;
-  throw new NotImplemented("season.adaptation.lineageFrom");
+  const parents: Record<string, string> = {};
+  const rationales: Record<string, string> = {};
+  for (const result of results) {
+    if (result.outcome.kind === "revised") {
+      parents[result.competitor] = result.fromVersion;
+      rationales[result.competitor] = result.rationale;
+    }
+  }
+  return { parents, rationales };
 }

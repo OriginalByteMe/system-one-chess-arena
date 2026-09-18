@@ -1,4 +1,3 @@
-import { NotImplemented } from "../../src/core/errors.ts";
 import type {
   DecisionRecord,
   Fen,
@@ -29,9 +28,37 @@ export function probabilityBars(
   decision: DecisionRecord,
   limit?: number,
 ): readonly ProbabilityBar[] {
-  void decision;
-  void limit;
-  throw new NotImplemented("web.watchModel.probabilityBars");
+  const { distribution } = decision;
+  if (distribution === undefined) {
+    return [
+      { move: decision.move, probability: decision.confidence ?? 1, chosen: true },
+    ];
+  }
+
+  const probabilities = new Map<Uci, number>(Object.entries(distribution));
+  probabilities.set(decision.move, probabilities.get(decision.move) ?? 0);
+
+  const bars: ProbabilityBar[] = [...probabilities].map(([move, probability]) => ({
+    move,
+    probability,
+    chosen: move === decision.move,
+  }));
+
+  const byRank = (a: ProbabilityBar, b: ProbabilityBar): number =>
+    b.probability - a.probability || (a.move < b.move ? -1 : a.move > b.move ? 1 : 0);
+
+  bars.sort(byRank);
+
+  if (limit === undefined || bars.length <= limit) {
+    return bars;
+  }
+
+  const kept = bars.filter((bar) => bar.chosen);
+  for (const bar of bars) {
+    if (kept.length >= limit) break;
+    if (!bar.chosen) kept.push(bar);
+  }
+  return kept.sort(byRank);
 }
 
 export interface GuessState {
@@ -58,10 +85,7 @@ export function recordGuess(
   ply: number,
   guess: Uci,
 ): GuessState {
-  void state;
-  void ply;
-  void guess;
-  throw new NotImplemented("web.watchModel.recordGuess");
+  return { ply, guess, settled: state.settled, hits: state.hits };
 }
 
 /**
@@ -75,9 +99,16 @@ export function settleGuess(
   state: GuessState,
   decision: DecisionRecord,
 ): GuessState {
-  void state;
-  void decision;
-  throw new NotImplemented("web.watchModel.settleGuess");
+  if (state.ply === undefined || state.ply !== decision.ply) {
+    return state;
+  }
+
+  const correct = state.guess === decision.move;
+  return {
+    settled: state.settled + 1,
+    hits: state.hits + (correct ? 1 : 0),
+    lastCorrect: correct,
+  };
 }
 
 export interface ScrubFrame {
@@ -98,7 +129,10 @@ export interface ScrubFrame {
  *   lag the broadcast but must never run ahead of it.
  */
 export function scrub(game: RevealedGame, index: number): ScrubFrame {
-  void game;
-  void index;
-  throw new NotImplemented("web.watchModel.scrub");
+  const clamped = Math.min(Math.max(index, 0), game.decisions.length);
+  const decision = clamped === 0 ? undefined : game.decisions[clamped - 1];
+  const fen: Fen = clamped < game.decisions.length
+    ? (game.decisions[clamped] as DecisionRecord).fen
+    : game.fen;
+  return { fen, index: clamped, decision };
 }

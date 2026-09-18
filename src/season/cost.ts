@@ -1,4 +1,3 @@
-import { NotImplemented } from "../core/errors.ts";
 import type { DecisionRecord, ModelPricing } from "../core/types.ts";
 
 /**
@@ -17,8 +16,15 @@ export const UNPRICED: ModelPricing = {
 
 /** Longest matching prefix in PRICING, or UNPRICED. */
 export function pricingFor(model: string): ModelPricing {
-  void model;
-  throw new NotImplemented("season.cost.pricingFor");
+  let bestKey: string | undefined;
+  let bestPricing: ModelPricing = UNPRICED;
+  for (const [key, pricing] of Object.entries(PRICING)) {
+    if (model.startsWith(key) && (bestKey === undefined || key.length > bestKey.length)) {
+      bestKey = key;
+      bestPricing = pricing;
+    }
+  }
+  return bestPricing;
 }
 
 /**
@@ -30,7 +36,14 @@ export function costUsd(
   decisions: readonly DecisionRecord[],
   models: ReadonlyMap<string, string>,
 ): number {
-  void decisions;
-  void models;
-  throw new NotImplemented("season.cost.costUsd");
+  let total = 0;
+  for (const decision of decisions) {
+    const model = models.get(decision.version);
+    const tokens = decision.tokens;
+    if (model === undefined || tokens === undefined) continue;
+    const pricing = pricingFor(model);
+    total += (tokens.in / 1_000_000) * pricing.inputUsdPerMillion;
+    total += (tokens.out / 1_000_000) * pricing.outputUsdPerMillion;
+  }
+  return total;
 }

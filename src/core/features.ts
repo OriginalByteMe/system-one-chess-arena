@@ -1,10 +1,10 @@
 import { Chess } from "chess.js";
 import type { Color, PieceSymbol, Square } from "chess.js";
-import { ContractViolation, NotImplemented } from "./errors.ts";
+import { ContractViolation } from "./errors.ts";
 import type { FeatureKey, FeatureSet, FeatureSubset, Uci } from "./types.ts";
 import type { Position } from "./rules.ts";
 
-const PIECE_VALUES: Readonly<Record<PieceSymbol, number>> = {
+export const PIECE_VALUES: Readonly<Record<PieceSymbol, number>> = {
   p: 100,
   n: 320,
   b: 330,
@@ -17,24 +17,37 @@ function isSquare(value: string): value is Square {
   return /^[a-h][1-8]$/.test(value);
 }
 
-export function computeFeatures(position: Position, lastMove?: Uci): FeatureSet {
-  let chess: Chess;
+interface BoardSquare {
+  readonly square: Square;
+  readonly type: PieceSymbol;
+  readonly color: Color;
+}
+
+type Board = readonly (BoardSquare | null)[][];
+
+function openChess(caller: string, position: Position): Chess {
   try {
-    chess = new Chess(position.fen);
+    return new Chess(position.fen);
   } catch {
-    throw new ContractViolation(
-      "features.computeFeatures",
-      `invalid FEN: ${position.fen}`,
-    );
+    throw new ContractViolation(caller, `invalid FEN: ${position.fen}`);
   }
+}
 
-  const own = chess.turn();
-  const opponent: Color = own === "w" ? "b" : "w";
-  const board = chess.board();
-  const minorHomeSquares: readonly string[] = own === "w"
-    ? ["b1", "c1", "f1", "g1"]
-    : ["b8", "c8", "f8", "g8"];
+interface BoardScalars {
+  readonly materialBalance: number;
+  readonly hangingOwnPieces: number;
+  readonly hangingOpponentPieces: number;
+  readonly development: number;
+  readonly kingSafety: number;
+}
 
+function computeBoardScalars(
+  chess: Chess,
+  board: Board,
+  own: Color,
+  opponent: Color,
+  minorHomeSquares: readonly string[],
+): BoardScalars {
   let materialBalance = 0;
   let hangingOwnPieces = 0;
   let hangingOpponentPieces = 0;
@@ -97,11 +110,17 @@ export function computeFeatures(position: Position, lastMove?: Uci): FeatureSet 
     }
   }
 
+  return { materialBalance, hangingOwnPieces, hangingOpponentPieces, development, kingSafety };
+}
+
+function computeOpponentMobility(position: Position, opponent: Color): number {
   const opponentPositionFields = position.fen.split(" ");
   opponentPositionFields[1] = opponent;
   opponentPositionFields[3] = "-";
-  const opponentMobility = new Chess(opponentPositionFields.join(" ")).moves().length;
+  return new Chess(opponentPositionFields.join(" ")).moves().length;
+}
 
+function computeOpponentMateInOne(chess: Chess): boolean {
   let opponentMateInOne = false;
   for (const move of chess.moves({ verbose: true })) {
     chess.move(move);
@@ -117,56 +136,89 @@ export function computeFeatures(position: Position, lastMove?: Uci): FeatureSet 
     chess.undo();
     if (opponentMateInOne) break;
   }
+  return opponentMateInOne;
+}
+
+interface LastMoveScalars {
+  readonly lastMoveAttacks: number;
+  readonly lastMoveThreatValue: number;
+  readonly lastMoveWasCapture: boolean;
+}
+
+const NEUTRAL_LAST_MOVE_SCALARS: LastMoveScalars = {
+  lastMoveAttacks: 0,
+  lastMoveThreatValue: 0,
+  lastMoveWasCapture: false,
+};
+
+function computeLastMoveScalars(
+  chess: Chess,
+  board: Board,
+  own: Color,
+  opponent: Color,
+  position: Position,
+  lastMove: Uci,
+  opponentMateInOne: boolean,
+): LastMoveScalars {
+  const destination = lastMove.slice(2, 4);
+  if (
+    !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(lastMove) ||
+    !isSquare(destination) ||
+    chess.get(destination)?.color !== opponent
+  ) {
+    throw new ContractViolation(
+      "features.computeFeatures",
+      `invalid last move: ${lastMove}`,
+    );
+  }
 
   let lastMoveAttacks = 0;
   let lastMoveThreatValue = 0;
-  let lastMoveWasCapture = false;
-  if (lastMove !== undefined) {
-    const destination = lastMove.slice(2, 4);
-    if (
-      !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(lastMove) ||
-      !isSquare(destination) ||
-      chess.get(destination)?.color !== opponent
-    ) {
-      throw new ContractViolation(
-        "features.computeFeatures",
-        `invalid last move: ${lastMove}`,
-      );
-    }
-
-    for (const row of board) {
-      for (const piece of row) {
-        if (
-          piece !== null &&
-          piece.color === own &&
-          chess.attackers(piece.square, opponent).includes(destination)
-        ) {
-          lastMoveAttacks++;
-          lastMoveThreatValue = Math.max(
-            lastMoveThreatValue,
-            PIECE_VALUES[piece.type],
-          );
-        }
+  for (const row of board) {
+    for (const piece of row) {
+      if (
+        piece !== null &&
+        piece.color === own &&
+        chess.attackers(piece.square, opponent).includes(destination)
+      ) {
+        lastMoveAttacks++;
+        lastMoveThreatValue = Math.max(
+          lastMoveThreatValue,
+          PIECE_VALUES[piece.type],
+        );
       }
     }
-    if (opponentMateInOne) lastMoveThreatValue = PIECE_VALUES.k;
-    lastMoveWasCapture =
-      position.history[position.history.length - 1]?.includes("x") ?? false;
   }
+  if (opponentMateInOne) lastMoveThreatValue = PIECE_VALUES.k;
+  const lastMoveWasCapture =
+    position.history[position.history.length - 1]?.includes("x") ?? false;
+
+  return { lastMoveAttacks, lastMoveThreatValue, lastMoveWasCapture };
+}
+
+export function computeFeatures(position: Position, lastMove?: Uci): FeatureSet {
+  const chess = openChess("features.computeFeatures", position);
+  const own = chess.turn();
+  const opponent: Color = own === "w" ? "b" : "w";
+  const board = chess.board();
+  const minorHomeSquares: readonly string[] = own === "w"
+    ? ["b1", "c1", "f1", "g1"]
+    : ["b8", "c8", "f8", "g8"];
+
+  const scalars = computeBoardScalars(chess, board, own, opponent, minorHomeSquares);
+  const opponentMobility = computeOpponentMobility(position, opponent);
+  const opponentMateInOne = computeOpponentMateInOne(chess);
+  const lastMoveScalars = lastMove === undefined
+    ? NEUTRAL_LAST_MOVE_SCALARS
+    : computeLastMoveScalars(chess, board, own, opponent, position, lastMove, opponentMateInOne);
 
   return {
-    materialBalance,
+    ...scalars,
     mobility: chess.moves().length,
     opponentMobility,
-    hangingOwnPieces,
-    hangingOpponentPieces,
-    kingSafety,
     inCheck: chess.inCheck(),
     opponentMateInOne,
-    lastMoveAttacks,
-    lastMoveThreatValue,
-    lastMoveWasCapture,
-    development,
+    ...lastMoveScalars,
     phase: position.ply < 20
       ? "opening"
       : position.ply < 60
@@ -203,8 +255,104 @@ export function computeDeclaredFeatures(
   declared: readonly FeatureKey[],
   lastMove?: Uci,
 ): FeatureSubset {
-  void position;
-  void declared;
-  void lastMove;
-  throw new NotImplemented("features.computeDeclaredFeatures");
+  const dedupedKeys: FeatureKey[] = [];
+  const wanted = new Set<FeatureKey>();
+  for (const key of declared) {
+    if (wanted.has(key)) continue;
+    wanted.add(key);
+    dedupedKeys.push(key);
+  }
+
+  const result: { [K in FeatureKey]?: FeatureSet[K] } = {};
+  if (dedupedKeys.length === 0) return result;
+
+  const chess = openChess("features.computeDeclaredFeatures", position);
+  const own = chess.turn();
+  const opponent: Color = own === "w" ? "b" : "w";
+  const board = chess.board();
+  const minorHomeSquares: readonly string[] = own === "w"
+    ? ["b1", "c1", "f1", "g1"]
+    : ["b8", "c8", "f8", "g8"];
+
+  let scalars: BoardScalars | undefined;
+  const boardScalarsValue = (): BoardScalars => {
+    if (scalars === undefined) {
+      scalars = computeBoardScalars(chess, board, own, opponent, minorHomeSquares);
+    }
+    return scalars;
+  };
+
+  let mateInOne: boolean | undefined;
+  const opponentMateInOneValue = (): boolean => {
+    if (mateInOne === undefined) mateInOne = computeOpponentMateInOne(chess);
+    return mateInOne;
+  };
+
+  let lastMoveResult: LastMoveScalars | undefined;
+  const lastMoveScalarsValue = (): LastMoveScalars => {
+    if (lastMoveResult === undefined) {
+      lastMoveResult = lastMove === undefined
+        ? NEUTRAL_LAST_MOVE_SCALARS
+        : computeLastMoveScalars(
+          chess,
+          board,
+          own,
+          opponent,
+          position,
+          lastMove,
+          opponentMateInOneValue(),
+        );
+    }
+    return lastMoveResult;
+  };
+
+  for (const key of dedupedKeys) {
+    switch (key) {
+      case "materialBalance":
+        result.materialBalance = boardScalarsValue().materialBalance;
+        break;
+      case "hangingOwnPieces":
+        result.hangingOwnPieces = boardScalarsValue().hangingOwnPieces;
+        break;
+      case "hangingOpponentPieces":
+        result.hangingOpponentPieces = boardScalarsValue().hangingOpponentPieces;
+        break;
+      case "development":
+        result.development = boardScalarsValue().development;
+        break;
+      case "kingSafety":
+        result.kingSafety = boardScalarsValue().kingSafety;
+        break;
+      case "mobility":
+        result.mobility = chess.moves().length;
+        break;
+      case "opponentMobility":
+        result.opponentMobility = computeOpponentMobility(position, opponent);
+        break;
+      case "inCheck":
+        result.inCheck = chess.inCheck();
+        break;
+      case "opponentMateInOne":
+        result.opponentMateInOne = opponentMateInOneValue();
+        break;
+      case "lastMoveAttacks":
+        result.lastMoveAttacks = lastMoveScalarsValue().lastMoveAttacks;
+        break;
+      case "lastMoveThreatValue":
+        result.lastMoveThreatValue = lastMoveScalarsValue().lastMoveThreatValue;
+        break;
+      case "lastMoveWasCapture":
+        result.lastMoveWasCapture = lastMoveScalarsValue().lastMoveWasCapture;
+        break;
+      case "phase":
+        result.phase = position.ply < 20
+          ? "opening"
+          : position.ply < 60
+            ? "middlegame"
+            : "endgame";
+        break;
+    }
+  }
+
+  return result;
 }
