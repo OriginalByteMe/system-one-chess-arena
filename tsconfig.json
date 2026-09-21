@@ -12,5 +12,6 @@
     "skipLibCheck": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src", "scripts", "__tests__"]
+  "include": ["src", "scripts", "__tests__"],
+  "exclude": ["__tests__/e2e/*.e2e.ts"]
 }

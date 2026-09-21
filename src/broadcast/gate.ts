@@ -85,11 +85,16 @@ export function revealedMoves(
 /**
  * Cache-Control for a gated response. A revealed prefix is immutable until the
  * next ply boundary, which is what makes many viewers on one game nearly free.
- * A finished broadcast is immutable forever.
+ * A finished broadcast is immutable forever — with one exception: a finished
+ * game with nothing revealed is either genuinely empty or has not been filed
+ * yet, and caching that for a year would outlive the answer. Measured the hard
+ * way: re-filing a season left browsers holding an empty game for good.
  */
 export function cacheControl(window: RevealWindow, now: EpochMs): string {
   if (window.status === "finished") {
-    return `public, max-age=${IMMUTABLE_MAX_AGE_SECONDS}, immutable`;
+    return window.revealedPlies === 0
+      ? "public, max-age=10"
+      : `public, max-age=${IMMUTABLE_MAX_AGE_SECONDS}, immutable`;
   }
 
   const nextBoundaryAt = window.nextBoundaryAt;

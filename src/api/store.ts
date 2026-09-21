@@ -129,8 +129,13 @@ function parseGameRow(row: unknown): RecordedGame {
       ? undefined
       : requireInteger(row.adjudicated_cp, "adjudicated_cp");
   const matchId = optionalString(row.match_id, "match_id");
-  const startAt = requireInteger(row.broadcast_start_at, "broadcast_start_at");
-  const msPerPly = requireInteger(row.ms_per_ply, "ms_per_ply");
+  // A game filed before the broadcast clock existed, or filed from a live
+  // season that played without one, has no schedule. It is history rather than
+  // a broadcast: read it as having aired in full at epoch, one ply per
+  // millisecond, which is what the gate then reports.
+  const unscheduled = row.broadcast_start_at === null || row.broadcast_start_at === undefined;
+  const startAt = unscheduled ? 0 : requireInteger(row.broadcast_start_at, "broadcast_start_at");
+  const msPerPly = unscheduled ? 1 : requireInteger(row.ms_per_ply, "ms_per_ply");
 
   return {
     summary: {

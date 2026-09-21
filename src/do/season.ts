@@ -11,6 +11,7 @@ import type {
   DecisionRecord,
   GameResult,
   GameSummary,
+  LiveGameSnapshot,
   Pairing,
   RecordRequest,
   SeasonConfig,
@@ -18,6 +19,7 @@ import type {
   StrategyLabel,
   Trait,
 } from "../core/types.ts";
+import { ALARM_DELAY_MS } from "./game.ts";
 import type { GameSnapshot } from "./game.ts";
 import { createRng } from "../core/rng.ts";
 import { DEFAULT_ELO, ratingsFromGames } from "../season/elo.ts";
@@ -27,10 +29,14 @@ import { buildPairings } from "../season/pairings.ts";
 
 const CONFIG_KEY = "config";
 const PAIRINGS_KEY = "pairings";
+/** gameId -> the broadcast a live game actually played on. */
+const SCHEDULES_KEY = "schedules";
+/** Milliseconds per ply, fixed when the season starts so later rounds match. */
+const PACE_KEY = "pace";
 const FINISHED_PREFIX = "finished:";
 
 interface GameStub extends DurableObjectStub {
-  start(pairing: Pairing, config: SeasonConfig): Promise<void>;
+  start(pairing: Pairing, config: SeasonConfig, msPerPly?: number): Promise<void>;
   snapshot(): Promise<GameSnapshot>;
   record(
     pairing: Pairing,
@@ -160,24 +166,94 @@ function parseCompetitorVersionRow(
 }
 
 export class SeasonDurableObject extends DurableObject<Env> {
-  async start(config: SeasonConfig): Promise<void> {
+  /**
+   * Starts a season's games. Idempotent per gameId.
+   *
+   * Contract:
+   * - No `pairings`: behaves exactly as before. A season not yet started
+   *   gets the round-robin `buildPairings` derives from `config`; a season
+   *   already started with the same config is a no-op, with a different
+   *   config a ContractViolation.
+   * - `pairings` given and the season is new: those pairings start the
+   *   season in place of the round-robin ones. This is how a knockout's
+   *   round 0 goes live.
+   * - `pairings` given and the season already exists (same config only):
+   *   any pairing whose gameId is not already stored is merged in and its
+   *   game stub started; already-known gameIds are left untouched. This is
+   *   how a knockout's later rounds join an in-progress season.
+   */
+  async start(
+    config: SeasonConfig,
+    pairings?: readonly Pairing[],
+    msPerPly?: number,
+  ): Promise<void> {
     const existing = this.ctx.storage.kv.get<SeasonConfig>(CONFIG_KEY);
     if (existing !== undefined) {
       if (JSON.stringify(existing) !== JSON.stringify(config)) {
         violation("start", "season has already been started with another config");
       }
+      if (pairings === undefined) return;
+
+      const stored =
+        this.ctx.storage.kv.get<readonly Pairing[]>(PAIRINGS_KEY) ?? [];
+      const knownGameIds = new Set(stored.map((pairing) => pairing.gameId));
+      const additions = pairings.filter((pairing) => !knownGameIds.has(pairing.gameId));
+      if (additions.length === 0) return;
+
+      // A later round keeps the pace the season was started at, so one
+      // campaign broadcasts at one speed however many rounds it runs.
+      const pace = this.ctx.storage.kv.get<number>(PACE_KEY) ?? msPerPly ?? ALARM_DELAY_MS;
+      const merged = [...stored, ...additions];
+      // Round 0's schedules were written at start; these are the only record
+      // that a later round ever aired, so without them those games file with
+      // a null broadcast and the site reads them as unscheduled.
+      const startedAt = Date.now();
+      const schedules = {
+        ...(this.ctx.storage.kv.get<Record<string, BroadcastSchedule>>(SCHEDULES_KEY) ?? {}),
+      };
+      for (const pairing of additions) {
+        schedules[pairing.gameId] = { startAt: startedAt, msPerPly: pace };
+      }
+      this.ctx.storage.transactionSync(() => {
+        this.ctx.storage.kv.put(PAIRINGS_KEY, merged);
+        this.ctx.storage.kv.put(SCHEDULES_KEY, schedules);
+      });
+      await Promise.all(
+        additions.map((pairing) => this.gameStub(pairing.gameId).start(pairing, config, pace)),
+      );
       return;
     }
 
-    const pairings = buildPairings(config, createRng(config.seed));
+    // The config claim stays synchronous with the check above it: two starts
+    // racing must not both believe they were first.
+    const resolvedPairings = pairings ?? buildPairings(config, createRng(config.seed));
+    const pace = msPerPly ?? ALARM_DELAY_MS;
+    // A live game's broadcast is simply when it started and how fast the alarm
+    // advances it. Storing that here is what lets a finished live season be
+    // filed with a real schedule rather than a null one.
+    const startedAt = Date.now();
+    const schedules: Record<string, BroadcastSchedule> = {};
+    for (const pairing of resolvedPairings) {
+      schedules[pairing.gameId] = { startAt: startedAt, msPerPly: pace };
+    }
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.kv.put(CONFIG_KEY, config);
-      this.ctx.storage.kv.put(PAIRINGS_KEY, pairings);
+      this.ctx.storage.kv.put(PAIRINGS_KEY, resolvedPairings);
+      this.ctx.storage.kv.put(SCHEDULES_KEY, schedules);
+      this.ctx.storage.kv.put(PACE_KEY, pace);
+    });
+    // Identity before play, like `record`: a live season files its competitors
+    // up front, so the site has a roster from the first move rather than after
+    // the last one, and a rejected roster never reaches a board.
+    await this.registerCompetitors({
+      config,
+      broadcast: { startAt: Date.now(), msPerPly: 1 },
+      concurrency: 1,
     });
 
     await Promise.all(
-      pairings.map((pairing) =>
-        this.gameStub(pairing.gameId).start(pairing, config),
+      resolvedPairings.map((pairing) =>
+        this.gameStub(pairing.gameId).start(pairing, config, pace),
       ),
     );
   }
@@ -201,6 +277,37 @@ export class SeasonDurableObject extends DurableObject<Env> {
     return standingsFor(
       config,
       games.map((game) => game.summary),
+    );
+  }
+
+  /**
+   * Every game this season has started, finished or not.
+   *
+   * Contract:
+   * - Not gated: a live game has no future to spoil, because its next move
+   *   has not been decided yet. Unlike `RecordedGame`, callers see it whole.
+   * - `lastMove`/`lastDecision` come from the last entry of each game's
+   *   decision list (oldest first), absent for a game with no plies yet.
+   */
+  async liveGames(): Promise<readonly LiveGameSnapshot[]> {
+    const { config, pairings } = this.storedSeason("liveGames");
+    return Promise.all(
+      pairings.map(async (pairing): Promise<LiveGameSnapshot> => {
+        const snapshot = await this.gameStub(pairing.gameId).snapshot();
+        const lastDecision = snapshot.decisions[snapshot.decisions.length - 1];
+        return {
+          gameId: pairing.gameId,
+          seasonId: config.seasonId,
+          white: pairing.white,
+          black: pairing.black,
+          fen: snapshot.fen,
+          ply: snapshot.ply,
+          ...(lastDecision === undefined
+            ? {}
+            : { lastMove: lastDecision.move, lastDecision }),
+          ...(snapshot.finished === undefined ? {} : { finished: snapshot.finished }),
+        };
+      }),
     );
   }
 
@@ -386,10 +493,15 @@ export class SeasonDurableObject extends DurableObject<Env> {
       );
     }
 
+    // The schedule goes in with the game: a filed game with no broadcast is
+    // unreadable by the gated read surface, which is what serves the site.
+    const schedules =
+      this.ctx.storage.kv.get<Record<string, BroadcastSchedule>>(SCHEDULES_KEY) ?? {};
     const insertGame = this.env.DB.prepare(
-      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, adjudicated_cp, plies, pgn) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
+      "INSERT INTO games (season_id, game_id, white_competitor, white_version, black_competitor, black_version, opening_id, result, reason, adjudicated_cp, plies, pgn, broadcast_start_at, ms_per_ply) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (season_id, game_id) DO NOTHING",
     );
     for (const { summary } of games) {
+      const schedule = schedules[summary.gameId];
       statements.push(
         insertGame.bind(
           summary.seasonId,
@@ -404,8 +516,17 @@ export class SeasonDurableObject extends DurableObject<Env> {
           summary.adjudicatedCp ?? null,
           summary.plies,
           summary.pgn,
+          schedule?.startAt ?? null,
+          schedule?.msPerPly ?? null,
         ),
       );
+    }
+
+    // The decision log is the product: a filed game without its decisions has
+    // a result and no reasoning. The record path writes these per game as it
+    // lands; a season that played live writes them here, when it completes.
+    for (const { decisions } of games) {
+      statements.push(...decisionStatements(this.env.DB, decisions));
     }
 
     statements.push(

@@ -1,6 +1,6 @@
 import { ContractViolation } from "./errors.ts";
 import { parseSeasonConfig } from "./season-config.ts";
-import type { RecordRequest } from "./types.ts";
+import type { CompetitorRef, Pairing, RecordRequest, SeasonConfig } from "./types.ts";
 
 /** Games recorded at once when the body does not say. */
 export const DEFAULT_CONCURRENCY: number = 10;
@@ -101,4 +101,123 @@ function parseNameMap(
   return Object.fromEntries(
     entries.map(([name, entry]) => [name, String(entry)]),
   );
+}
+
+const START_SUBJECT = "core.recordRequest.parseStartRequest";
+const PAIRING_SUBJECT = "core.recordRequest.parsePairings";
+
+function startViolation(detail: string): never {
+  throw new ContractViolation(START_SUBJECT, detail);
+}
+
+function pairingViolation(detail: string): never {
+  throw new ContractViolation(PAIRING_SUBJECT, detail);
+}
+
+/** Body accepted by the live start endpoint: a season plus optional explicit games. */
+export interface StartRequest {
+  readonly config: SeasonConfig;
+  /**
+   * Explicit games to start, in place of the round-robin `buildPairings`
+   * would derive. Needed for a knockout, where each round is a distinct set
+   * of games rather than every ordered pair.
+   */
+  readonly pairings?: readonly Pairing[];
+}
+
+function parseCompetitorRef(
+  value: unknown,
+  field: string,
+  knownIdentities: ReadonlySet<string>,
+): CompetitorRef {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    pairingViolation(`${field} must be an object`);
+  }
+  const raw = value as Record<string, unknown>;
+  const name = raw.name;
+  const version = raw.version;
+  if (
+    typeof name !== "string" ||
+    name.length === 0 ||
+    typeof version !== "string" ||
+    version.length === 0
+  ) {
+    pairingViolation(`${field} must have a non-empty name and version`);
+  }
+  if (!knownIdentities.has(`${name}\0${version}`)) {
+    pairingViolation(`${field} must reference a competitor in config.competitors: ${name}@${version}`);
+  }
+  return { name, version };
+}
+
+/**
+ * Validates explicit pairings against a parsed season config.
+ *
+ * Contract:
+ * - Must be an array. Each entry needs a non-empty, unique `gameId`, `white`
+ *   and `black` refs naming a competitor (with matching version) present in
+ *   `config.competitors`, and an `openingId` present in `config.openings`.
+ * - Anything else is a ContractViolation naming the field. This is the same
+ *   check `do/game.ts`'s `manifestFor` performs at play time, run early so a
+ *   malformed request fails before any game durable object is touched.
+ */
+export function parsePairings(value: unknown, config: SeasonConfig): readonly Pairing[] {
+  if (!Array.isArray(value)) {
+    pairingViolation("pairings must be an array");
+  }
+  const knownIdentities = new Set(
+    config.competitors.map((competitor) => `${competitor.name}\0${competitor.version}`),
+  );
+  const openingIds = new Set(config.openings.map((opening) => opening.id));
+  const seenGameIds = new Set<string>();
+
+  return value.map((entry): Pairing => {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      pairingViolation("pairings entries must be objects");
+    }
+    const raw = entry as Record<string, unknown>;
+    const gameId = raw.gameId;
+    if (typeof gameId !== "string" || gameId.length === 0) {
+      pairingViolation("pairings.gameId must be a non-empty string");
+    }
+    if (seenGameIds.has(gameId)) {
+      pairingViolation(`pairings.gameId is duplicated: ${gameId}`);
+    }
+    seenGameIds.add(gameId);
+
+    const white = parseCompetitorRef(raw.white, "pairings.white", knownIdentities);
+    const black = parseCompetitorRef(raw.black, "pairings.black", knownIdentities);
+
+    const openingId = raw.openingId;
+    if (typeof openingId !== "string" || !openingIds.has(openingId)) {
+      pairingViolation(`pairings.openingId must reference a configured opening: ${String(openingId)}`);
+    }
+
+    return { gameId, white, black, openingId };
+  });
+}
+
+/**
+ * Narrows the body of the live start endpoint: a bare season config, with an
+ * optional sibling `pairings` field carrying an explicit set of games.
+ *
+ * Contract:
+ * - Delegates the season to parseSeasonConfig once `pairings` (if present)
+ *   has been separated out, so the config's exact-key contract is unaffected.
+ * - `pairings`, when present, is validated by parsePairings against the
+ *   parsed config.
+ * - Anything else is a ContractViolation naming the field.
+ */
+export function parseStartRequest(value: unknown): StartRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    startViolation("expected an object");
+  }
+  const raw = value as Record<string, unknown>;
+  const { pairings: pairingsRaw, ...configRaw } = raw;
+  const config = parseSeasonConfig(configRaw);
+
+  if (!("pairings" in raw)) {
+    return { config };
+  }
+  return { config, pairings: parsePairings(pairingsRaw, config) };
 }

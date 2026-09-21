@@ -1,37 +1,95 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "system-one-chess-arena",
-  "main": "src/index.ts",
-  // Must not exceed the workerd binary bundled with wrangler/miniflare, or the
-  // vitest workers pool refuses to start.
-  "compatibility_date": "2026-08-22",
-  "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true },
-  "assets": {
-    "directory": "./web/dist",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
-  },
-  "durable_objects": {
-    "bindings": [
-      { "name": "GAME", "class_name": "GameDurableObject" },
-      { "name": "SEASON", "class_name": "SeasonDurableObject" }
-    ]
-  },
-  "migrations": [
-    {
-      "tag": "v1",
-      // SQLite-backed Durable Objects; new_classes would give the older KV storage.
-      "new_sqlite_classes": ["GameDurableObject", "SeasonDurableObject"]
-    }
-  ],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "arena",
-      // Local dev and the workers test pool only need a non-empty id.
-      // `wrangler d1 create arena` replaces this before the first deploy.
-      "database_id": "local-development-placeholder"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "system-one-chess-arena",
+	"main": "src/index.ts",
+	// Must not exceed the workerd binary bundled with wrangler/miniflare, or the
+	// vitest workers pool refuses to start.
+	"compatibility_date": "2026-08-22",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"observability": {
+		"enabled": true
+	},
+	// The site's own hostname. `custom_domain` makes Cloudflare provision the
+	// DNS record and the certificate on deploy, which needs the noahrijkaard.com
+	// zone to be in this account. Remove this block to deploy to workers.dev only.
+	"routes": [
+		{
+			"pattern": "chess.noahrijkaard.com",
+			"custom_domain": true
+		}
+	],
+	// Non-secret operator settings. Empty string means "unset" everywhere they
+	// are read. Real values come from `wrangler.jsonc` edits or `--var` at
+	// deploy time, never from `wrangler secret put` (those are the tokens).
+	"vars": {
+		// Season id the front page opens on. Empty means "most recently scheduled".
+		"ARENA_FEATURED_SEASON": "",
+		// The three below are supplied at deploy time by scripts/deploy.ts from
+		// .env, so they stay out of the repo. Empty here means "not deployed
+		// through `bun run deploy`", which the admin console reports as 503.
+		"CF_ACCESS_TEAM_DOMAIN": "",
+		"CF_ACCESS_AUD": "",
+		"CF_ACCOUNT_ID": ""
+	},
+	// Campaign scheduler. Hourly, so a failed hour retries and a finished game
+	// is filed within the hour. The plan's hourUtc decides which of these 24
+	// firings actually deals the day's matches. src/index.ts scheduled().
+	"triggers": {
+		"crons": [
+			"0 * * * *"
+		]
+	},
+	"assets": {
+		"directory": "./web/dist",
+		"not_found_handling": "single-page-application",
+		// /admin and /privacy are SPA routes rendered client-side; only /api/*
+		// must reach the Worker before falling back to the static bundle.
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	// Request/decision telemetry. Read side needs CF_ACCOUNT_ID and the
+	// CF_ANALYTICS_TOKEN secret; this binding is only the write side.
+	"analytics_engine_datasets": [
+		{
+			"binding": "ANALYTICS",
+			"dataset": "arena_events"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "GAME",
+				"class_name": "GameDurableObject"
+			},
+			{
+				"name": "SEASON",
+				"class_name": "SeasonDurableObject"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			// SQLite-backed Durable Objects; new_classes would give the older KV storage.
+			"new_sqlite_classes": [
+				"GameDurableObject",
+				"SeasonDurableObject"
+			]
+		}
+	],
+	"d1_databases": [
+		{
+			// Must stay "DB": every caller in src/ reads env.DB. Renaming it
+			// leaves env.DB undefined and every D1 route throws
+			// "Cannot read properties of undefined (reading 'prepare')".
+			"binding": "DB",
+			"database_name": "arena",
+			"database_id": "bb08df4b-4fcc-49b8-be65-90392ee51f2f"
+			// No "remote": true. It points the vitest workers pool at the
+			// production database, and the suite writes seasons and games.
+		}
+	]
 }

@@ -468,11 +468,13 @@ describe("rivalryView", () => {
     expect(actual).toBeDefined();
     if (actual === undefined) return;
     expect(actual.gameIds).toEqual([]);
-    expect(actual.traits).toEqual([]);
     expect(actual.headToHead.wins).toBe(0);
     expect(actual.headToHead.losses).toBe(0);
     expect(actual.headToHead.draws).toBe(0);
     expect(actual.headToHead.recent).toEqual([]);
+    // A first meeting is itself a trait since the catalogue grew: the pair has
+    // no history to read, and the brief says so rather than guessing.
+    expect(actual.traits.map((trait) => trait.rule)).toEqual(["clean-slate"]);
   });
 });
 

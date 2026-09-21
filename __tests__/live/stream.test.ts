@@ -5,16 +5,57 @@ import {
   resubscribeCursor,
 } from "../../src/live/stream.ts";
 import type {
+  DecisionRecord,
   Fen,
   MoveEvent,
   ResultEvent,
   SpectatorState,
+  StrategyLabel,
 } from "../../src/core/types.ts";
 
 const START_FEN: Fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const FEN_AFTER_E4: Fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
 const FEN_AFTER_E4_E5: Fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
 const FEN_AFTER_E4_E5_NF3: Fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+
+/** The audit row a live move carries, so a spectator sees the whole decision. */
+function decisionFor(
+  ply: number,
+  competitor: string,
+  version: string,
+  move: string,
+  fen: Fen,
+  strategy: StrategyLabel,
+  latencyMs: number,
+): DecisionRecord {
+  return {
+    seasonId: "season-live",
+    gameId: "game-live-1",
+    ply: ply - 1,
+    competitor,
+    version,
+    colour: ply % 2 === 1 ? "white" : "black",
+    fen,
+    legalMoveCount: 20,
+    move,
+    strategy,
+    latencyMs,
+    featuresSeen: [],
+    idempotencyKey: `game-live-1:${ply - 1}:${version}`,
+  };
+}
+
+const DECISION_ONE = decisionFor(1, "white-player", "white-v1", "e2e4", START_FEN, "develop", 41);
+const DECISION_TWO = decisionFor(2, "black-player", "black-v1", "e7e5", FEN_AFTER_E4, "direct", 36);
+const DECISION_THREE = decisionFor(
+  3,
+  "white-player",
+  "white-v1",
+  "g1f3",
+  FEN_AFTER_E4_E5,
+  "develop",
+  29,
+);
 
 const MOVE_ONE: MoveEvent = {
   type: "move",
@@ -26,6 +67,7 @@ const MOVE_ONE: MoveEvent = {
   strategy: "develop",
   confidence: 0.82,
   latencyMs: 41,
+  decision: DECISION_ONE,
 };
 
 const MOVE_TWO: MoveEvent = {
@@ -38,6 +80,7 @@ const MOVE_TWO: MoveEvent = {
   strategy: "direct",
   confidence: 0.77,
   latencyMs: 36,
+  decision: DECISION_TWO,
 };
 
 const MOVE_THREE: MoveEvent = {
@@ -49,6 +92,7 @@ const MOVE_THREE: MoveEvent = {
   competitor: { name: "white-player", version: "white-v1" },
   strategy: "develop",
   latencyMs: 29,
+  decision: DECISION_THREE,
 };
 
 const RESULT: ResultEvent = {
@@ -65,6 +109,7 @@ function stateAfterFirstMove(): SpectatorState {
     fen: FEN_AFTER_E4,
     cursor: 1,
     lastMove: MOVE_ONE,
+    decisions: [DECISION_ONE],
   };
 }
 
@@ -85,6 +130,7 @@ describe("live spectator stream", () => {
       gameId: "game-live-1",
       fen: START_FEN,
       cursor: 0,
+      decisions: [],
     });
   });
 
@@ -100,12 +146,14 @@ describe("live spectator stream", () => {
       fen: FEN_AFTER_E4,
       cursor: 1,
       lastMove: MOVE_ONE,
+      decisions: [DECISION_ONE],
     });
     expect(afterTwo).toEqual({
       gameId: "game-live-1",
       fen: FEN_AFTER_E4_E5,
       cursor: 2,
       lastMove: MOVE_TWO,
+      decisions: [DECISION_ONE, DECISION_TWO],
     });
   });
 
@@ -120,6 +168,7 @@ describe("live spectator stream", () => {
       fen: FEN_AFTER_E4,
       cursor: 6,
       lastMove: openingMove,
+      decisions: [DECISION_ONE],
     });
     expect(applyEvent(afterOpeningMove, { ...MOVE_THREE, ply: 8 })).toEqual(
       afterOpeningMove,
@@ -151,6 +200,7 @@ describe("live spectator stream", () => {
       fen: FEN_AFTER_E4_E5_NF3,
       cursor: 3,
       lastMove: MOVE_THREE,
+      decisions: [DECISION_ONE, DECISION_TWO, DECISION_THREE],
     });
   });
 
@@ -163,6 +213,7 @@ describe("live spectator stream", () => {
       fen: FEN_AFTER_E4_E5,
       cursor: 2,
       lastMove: MOVE_TWO,
+      decisions: [DECISION_ONE, DECISION_TWO],
       finished: RESULT,
     });
     expect(applyEvent(finished, MOVE_THREE)).toEqual(finished);

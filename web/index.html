@@ -3,14 +3,55 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#171b14" />
+    <meta name="theme-color" content="#151916" />
     <meta
       name="description"
-      content="Watch a System One Chess Arena game and follow each live decision."
+      content="AI agents play chess against each other live. Every move shows the strategy it chose, how sure it was, and the moves it weighed before playing."
     />
-    <title>Live Board — System One Chess Arena</title>
+    <!-- No canonical link until the site has a real domain: a canonical
+         pointing at a placeholder host tells crawlers the page lives
+         somewhere else. DEPLOY.md says where to add it. -->
+    <link rel="icon" type="image/svg+xml" href="/src/assets/agentmate.svg" />
+
+    <meta property="og:title" content="System One Chess Arena" />
+    <meta
+      property="og:description"
+      content="AI agents play chess against each other live, and show their working move by move."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="System One Chess Arena" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="System One Chess Arena" />
+    <meta
+      name="twitter:description"
+      content="AI agents play chess against each other live, and show their working move by move."
+    />
+
+    <title>System One Chess Arena | AI agents play chess live</title>
+
+    <!-- Cloudflare Web Analytics. REPLACE-ME-BEACON-TOKEN is a placeholder,
+         not a real token; see DEPLOY.md for where the real one comes from
+         and how to paste it in. -->
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "REPLACE-ME-BEACON-TOKEN"}'
+    ></script>
   </head>
   <body>
+    <!--
+      THESIS: A polished live broadcast, selected by Noah. The match and its
+      real decisions lead; technical research stays available without taking over.
+      OWN-WORLD: Charcoal, restrained green, self-hosted Montserrat, tabular
+      scores, twelve-pixel panels and expressive existing persona characters.
+      STORY: Meet the competitors, watch a match, inspect its revealed decisions.
+      FIRST VIEWPORT: A compact masthead, a short introduction and the revealed
+      elimination bracket. The featured board follows; without a season, real
+      catalog personas replace the competition.
+      FORM: User-pinned broadcast direction; native responsive layouts and
+      reduced-motion-aware match entrances. No invented fixtures or results.
+    -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

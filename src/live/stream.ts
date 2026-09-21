@@ -1,7 +1,7 @@
 import type { Fen, LiveEvent, SpectatorState } from "../core/types.ts";
 
 export function initialSpectatorState(gameId: string, fen: Fen): SpectatorState {
-  return { gameId, fen, cursor: 0 };
+  return { gameId, fen, cursor: 0, decisions: [] };
 }
 
 export function applyEvent(state: SpectatorState, event: LiveEvent): SpectatorState {
@@ -18,9 +18,14 @@ export function applyEvent(state: SpectatorState, event: LiveEvent): SpectatorSt
   // move applied to an untouched stream therefore sets the baseline; every
   // move after it must be contiguous, so a gap still waits to be filled.
   const expected = state.lastMove === undefined ? event.ply : state.cursor + 1;
-  return event.ply === expected
-    ? { ...state, fen: event.fen, cursor: event.ply, lastMove: event }
-    : state;
+  if (event.ply !== expected) return state;
+  return {
+    ...state,
+    fen: event.fen,
+    cursor: event.ply,
+    lastMove: event,
+    decisions: [...state.decisions, event.decision],
+  };
 }
 
 export function resubscribeCursor(state: SpectatorState): number {

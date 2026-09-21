@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import type { Loaded } from "./api.ts";
+import { TopNav } from "./pages/home/TopNav.tsx";
+import { Footer } from "./pages/home/Footer.tsx";
 
 /** The masthead and page frame every page shares. */
 export function Shell({
@@ -13,19 +15,17 @@ export function Shell({
   readonly children: ReactNode;
 }) {
   return (
-    <main className="arena-shell">
-      <header className="masthead">
-        <a className="wordmark" href="/">
-          <span>System One</span>
-          <strong>Chess Arena</strong>
-        </a>
-        <div className="broadcast-meta">
+    <div className="flex min-h-screen flex-col">
+      <TopNav />
+      <main className="arena-shell flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-rail pb-6">
+          <h1 className="break-words text-3xl font-bold tracking-[-0.03em] sm:text-4xl">{title}</h1>
           {meta}
-          <span className="game-id">{title}</span>
         </div>
-      </header>
-      {children}
-    </main>
+        {children}
+      </main>
+      <Footer />
+    </div>
   );
 }
 

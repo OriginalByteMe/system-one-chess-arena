@@ -9,3 +9,11 @@ worker-configuration.d.ts
 
 # Throwaway visual-direction prototypes. Never committed.
 design-previews/
+
+# Design lab: throwaway comparison harness, promoted into the real pages once a direction is locked.
+web/src/lab/
+web/lab.html
+
+# Browser E2E failure artifacts.
+test-results/
+playwright-report/

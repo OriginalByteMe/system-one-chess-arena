@@ -70,10 +70,15 @@ const DIFFERENT_CONFIG: SeasonConfig = {
   roundsPerPair: 2,
 };
 
+// The pool's D1 binding starts schemaless, so the suite writes the shipped
+// shape itself. It has to be the full phase-2 shape: starting a season now
+// files its competitors, and that write names parent_version and traits_json.
 const PROJECTION_SCHEMA = [
-  "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY (season_id, competitor, version))",
-  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, adjudicated_cp INTEGER, plies INTEGER NOT NULL, pgn TEXT NOT NULL, PRIMARY KEY (season_id, game_id))",
+  "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, parent_version TEXT, traits_json TEXT, rationale TEXT, PRIMARY KEY (season_id, competitor, version))",
+  "CREATE TABLE IF NOT EXISTS games (season_id TEXT NOT NULL, game_id TEXT NOT NULL, white_competitor TEXT NOT NULL, white_version TEXT NOT NULL, black_competitor TEXT NOT NULL, black_version TEXT NOT NULL, opening_id TEXT NOT NULL, result TEXT NOT NULL, reason TEXT NOT NULL, adjudicated_cp INTEGER, plies INTEGER NOT NULL, pgn TEXT NOT NULL, match_id TEXT, broadcast_start_at INTEGER, ms_per_ply INTEGER, PRIMARY KEY (season_id, game_id))",
   "CREATE TABLE IF NOT EXISTS strategy_outcomes (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, strategy TEXT NOT NULL, picks INTEGER NOT NULL, score REAL NOT NULL, avg_confidence REAL NOT NULL, PRIMARY KEY (season_id, competitor, version, strategy))",
+  "CREATE TABLE IF NOT EXISTS decisions (season_id TEXT NOT NULL, game_id TEXT NOT NULL, ply INTEGER NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, colour TEXT NOT NULL, fen TEXT NOT NULL, legal_move_count INTEGER NOT NULL, move TEXT NOT NULL, strategy TEXT NOT NULL, confidence REAL, distribution_json TEXT, latency_ms INTEGER NOT NULL, tokens_in INTEGER, tokens_out INTEGER, fallback TEXT, features_seen_json TEXT NOT NULL, idempotency_key TEXT NOT NULL, PRIMARY KEY (season_id, game_id, ply))",
+  "CREATE TABLE IF NOT EXISTS competitors (name TEXT NOT NULL PRIMARY KEY, first_season_id TEXT NOT NULL)",
 ] as const;
 
 const arenaEnv = env as Env;

@@ -37,7 +37,10 @@ import { idempotencyKey } from "../season/log.ts";
 
 const DECISION_PREFIX = "decision:";
 const ALARM_FAILURE_COUNT = "alarm-failure-count";
-const ALARM_DELAY_MS = 1_000;
+/** How fast a live game advances, when its season did not choose a pace. */
+const PACE_KEY = "pace";
+/** One ply per second while a game plays live. Also its real broadcast pace. */
+export const ALARM_DELAY_MS = 1_000;
 const MAX_ALARM_RETRY_DELAY_MS = 60_000;
 
 interface PersistedGame {
@@ -132,6 +135,7 @@ function moveEvent(record: DecisionRecord, fen: Fen): MoveEvent {
       ? {}
       : { confidence: record.confidence }),
     latencyMs: record.latencyMs,
+    decision: record,
   };
 }
 
@@ -157,7 +161,12 @@ function manifestFor(
 export class GameDurableObject extends DurableObject<Env> {
   private alarmInFlight: Promise<void> | undefined;
 
-  async start(pairing: Pairing, config: SeasonConfig): Promise<void> {
+  /**
+   * Starts a game playing. `msPerPly` is how fast its alarm advances, and so
+   * also the broadcast pace the season files for it; omitted means the
+   * ALARM_DELAY_MS default a season that never chose a pace has always used.
+   */
+  async start(pairing: Pairing, config: SeasonConfig, msPerPly?: number): Promise<void> {
     const opening = config.openings.find(
       (candidate) => candidate.id === pairing.openingId,
     );
@@ -181,10 +190,11 @@ export class GameDurableObject extends DurableObject<Env> {
       this.ctx.storage.kv.put("config", config);
       this.ctx.storage.kv.put("game", game);
       this.ctx.storage.kv.delete(ALARM_FAILURE_COUNT);
+      if (msPerPly !== undefined) this.ctx.storage.kv.put(PACE_KEY, msPerPly);
     });
 
     if (finished === undefined) {
-      await this.scheduleAlarm(ALARM_DELAY_MS);
+      await this.scheduleAlarm(this.pace());
     } else {
       await this.ctx.storage.deleteAlarm();
     }
@@ -321,6 +331,11 @@ export class GameDurableObject extends DurableObject<Env> {
       .sort((left, right) => left.ply - right.ply);
   }
 
+  /** The pace this game was started at, or the default for an older game. */
+  private pace(): number {
+    return this.ctx.storage.kv.get<number>(PACE_KEY) ?? ALARM_DELAY_MS;
+  }
+
   private async scheduleAlarm(delayMs: number): Promise<void> {
     await this.ctx.storage.setAlarm(
       performance.timeOrigin + createSystemClock().now() + delayMs,
@@ -336,7 +351,7 @@ export class GameDurableObject extends DurableObject<Env> {
         (this.ctx.storage.kv.get<number>(ALARM_FAILURE_COUNT) ?? 0) + 1;
       this.ctx.storage.kv.put(ALARM_FAILURE_COUNT, failureCount);
       const retryDelayMs = Math.min(
-        ALARM_DELAY_MS * 2 ** Math.min(failureCount - 1, 10),
+        this.pace() * 2 ** Math.min(failureCount - 1, 10),
         MAX_ALARM_RETRY_DELAY_MS,
       );
       await this.scheduleAlarm(retryDelayMs);
@@ -503,7 +518,7 @@ export class GameDurableObject extends DurableObject<Env> {
     if (!committed) return;
 
     if (finished === undefined) {
-      await this.scheduleAlarm(ALARM_DELAY_MS);
+      await this.scheduleAlarm(this.pace());
     } else {
       await this.ctx.storage.deleteAlarm();
     }

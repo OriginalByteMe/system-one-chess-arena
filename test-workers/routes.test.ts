@@ -85,10 +85,18 @@ function pairing(
   };
 }
 
+// Starting a season files its competitors, so the route suite needs the tables
+// that write touches. The pool's D1 binding starts schemaless.
+const SCHEMA = [
+  "CREATE TABLE IF NOT EXISTS competitor_versions (season_id TEXT NOT NULL, competitor TEXT NOT NULL, version TEXT NOT NULL, manifest_json TEXT NOT NULL, parent_version TEXT, traits_json TEXT, rationale TEXT, PRIMARY KEY (season_id, competitor, version))",
+  "CREATE TABLE IF NOT EXISTS competitors (name TEXT NOT NULL PRIMARY KEY, first_season_id TEXT NOT NULL)",
+] as const;
+
 beforeEach(async () => {
   vi.restoreAllMocks();
   Object.assign(env, { ARENA_ADMIN_TOKEN: ADMIN_TOKEN });
   await reset();
+  await env.DB.batch(SCHEMA.map((statement) => env.DB.prepare(statement)));
 });
 
 describe("Worker routes", () => {
@@ -140,9 +148,10 @@ describe("Worker routes", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(
-      SELF.fetch(`${ORIGIN}/api/seasons/${config.seasonId}/standings`),
-    ).rejects.toThrow(/season has not been started/);
+    // Nothing ran, so the season does not exist. Asking for its standings is a
+    // 404 rather than a 500: the refusal must not leave a broken route behind.
+    const standings = await SELF.fetch(`${ORIGIN}/api/seasons/${config.seasonId}/standings`);
+    expect(standings.status).toBe(404);
   });
 
   test("POST start rejects a path and body seasonId mismatch", async () => {

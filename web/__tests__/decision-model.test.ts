@@ -1,7 +1,24 @@
 import { describe, expect, test } from "bun:test";
 
-import type { MoveEvent } from "../../src/core/types.ts";
+import type { DecisionRecord, MoveEvent } from "../../src/core/types.ts";
 import { formatDecision } from "../src/decision-model.ts";
+
+const record: DecisionRecord = {
+  seasonId: "season-1",
+  gameId: "round-1-game-4",
+  ply: 16,
+  competitor: "calculated-risk",
+  version: "v3",
+  colour: "white",
+  fen: "8/8/8/8/8/8/8/8 w - - 0 9",
+  legalMoveCount: 24,
+  move: "g1f3",
+  strategy: "direct",
+  confidence: 0.734,
+  latencyMs: 842,
+  featuresSeen: [],
+  idempotencyKey: "round-1-game-4:16:v3",
+};
 
 const decision: MoveEvent = {
   type: "move",
@@ -13,6 +30,7 @@ const decision: MoveEvent = {
   strategy: "direct",
   confidence: 0.734,
   latencyMs: 842,
+  decision: record,
 };
 
 describe("decision panel model", () => {

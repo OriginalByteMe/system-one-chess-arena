@@ -417,6 +417,16 @@ export interface EloRating {
 // Live spectator stream (Phase 5)
 // ---------------------------------------------------------------------------
 
+/**
+ * One ply, as it happens.
+ *
+ * The summary fields are the stream's own contract: `ply` is the applied-ply
+ * cursor a spectator resubscribes from, one ahead of the decision's own
+ * pre-move ply. `decision` is the whole audit row behind the move — the
+ * probability distribution, the token counts, the features it was allowed to
+ * see — so a live viewer sees exactly what a replay viewer sees, at the moment
+ * the competitor decided rather than afterwards.
+ */
 export interface MoveEvent {
   readonly type: "move";
   readonly gameId: string;
@@ -427,6 +437,7 @@ export interface MoveEvent {
   readonly strategy: StrategyLabel;
   readonly confidence?: number;
   readonly latencyMs: number;
+  readonly decision: DecisionRecord;
 }
 
 export interface ResultEvent {
@@ -446,7 +457,31 @@ export interface SpectatorState {
   /** Highest applied ply; the resubscribe cursor. */
   readonly cursor: number;
   readonly lastMove?: MoveEvent;
+  /**
+   * Every decision applied so far, oldest first. A live viewer needs the same
+   * list a recorded game hands its viewer, so the broadcast page can scrub and
+   * show a competitor's reasoning without waiting for the game to be filed.
+   */
+  readonly decisions: readonly DecisionRecord[];
   readonly finished?: ResultEvent;
+}
+
+/**
+ * A game that is playing right now, as the season Durable Object sees it.
+ * Unlike the recorded read model this is not gated: a live game has no future
+ * to spoil, because the move has not been decided yet.
+ */
+export interface LiveGameSnapshot {
+  readonly gameId: string;
+  readonly seasonId: string;
+  readonly white: CompetitorRef;
+  readonly black: CompetitorRef;
+  readonly fen: Fen;
+  /** Plies played so far. */
+  readonly ply: number;
+  readonly lastMove?: Uci;
+  readonly lastDecision?: DecisionRecord;
+  readonly finished?: TerminalState;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +707,12 @@ export interface HeadToHead {
 
 export type TraitCondition =
   | { readonly kind: "loss-streak"; readonly atLeast: number }
-  | { readonly kind: "broke-loss-streak"; readonly atLeast: number };
+  | { readonly kind: "broke-loss-streak"; readonly atLeast: number }
+  | { readonly kind: "win-streak"; readonly atLeast: number }
+  | { readonly kind: "broke-win-streak"; readonly atLeast: number }
+  | { readonly kind: "draw-streak"; readonly atLeast: number }
+  | { readonly kind: "even-record"; readonly atLeast: number }
+  | { readonly kind: "first-meeting" };
 
 /**
  * A trait rule is configuration, not code. It may only append to the playstyle

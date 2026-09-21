@@ -20,3 +20,14 @@ bun install
 bun run typecheck
 bun run dev        # wrangler dev on :8787
 ```
+
+## Deploying
+
+The site runs live on Cloudflare Workers, Durable Objects and D1. First-time
+setup (creating the D1 database, applying migrations, secrets, Cloudflare
+Access in front of `/admin`, Web Analytics) and every deploy after that is
+covered start to finish in `DEPLOY.md`. Once set up:
+
+```sh
+bun run deploy      # builds web/dist, then wrangler deploy
+```

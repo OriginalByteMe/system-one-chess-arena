@@ -1,0 +1,32 @@
+.sigil {
+  flex-shrink: 0;
+}
+
+/* Each strip contains eight 96-unit frames. No interpolation between poses. */
+.sigil[data-in-view="true"] .sigil-strip {
+  animation: sigil-frames 1.2s steps(8) 1;
+}
+
+.sigil[data-in-view="true"][data-thinking="true"] .sigil-strip {
+  animation-duration: 0.88s;
+  animation-iteration-count: 2;
+}
+
+.sigil[data-in-view="true"]:hover .sigil-strip {
+  animation-name: sigil-frames-hover;
+}
+
+/* Separate names let a hover replay a completed entrance without a JS timer. */
+@keyframes sigil-frames {
+  to { transform: translateX(-768px); }
+}
+
+@keyframes sigil-frames-hover {
+  to { transform: translateX(-768px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sigil .sigil-strip {
+    animation: none !important;
+  }
+}

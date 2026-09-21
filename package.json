@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "plan": "bun scripts/serve-plan.ts",
-    "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json",
+    "build": "bun run build:web",
+    "deploy": "bun run build:web && bun scripts/deploy.ts",
+    "preview": "bun run build:web && wrangler dev",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p __tests__/e2e/tsconfig.json",
     "no-any": "bun scripts/no-any.ts",
     "test": "bun test __tests__",
     "season": "bun scripts/season.ts",
@@ -14,23 +16,33 @@
     "dev:web": "vite web --config web/vite.config.ts",
     "build:web": "tsc --noEmit -p web/tsconfig.json && vite build web --config web/vite.config.ts",
     "test:web": "bun test web",
+    "test:e2e": "bun run build:web && playwright test",
+    "db:migrate:local": "wrangler d1 migrations apply arena --local",
+    "db:migrate:remote": "wrangler d1 migrations apply arena --remote",
     "check": "bun run typecheck && bun run no-any && bun run test"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^4",
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/vite": "^4",
     "@types/bun": "^1.4.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4",
     "typescript": "^5",
     "vite": "^8.3.0",
     "vitest": "^4.1.0",
     "wrangler": "^4"
   },
   "dependencies": {
+    "@paper-design/shaders-react": "^0.0.81",
     "chess.js": "^1.4.0",
+    "clsx": "^2.1.1",
+    "motion": "^13",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "tailwind-merge": "^3.7.0"
   }
 }

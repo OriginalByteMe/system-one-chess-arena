@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+/* The design lab under src/lab is gitignored, and Tailwind v4's content
+   detection skips ignored paths. Naming the directory explicitly keeps the
+   lab's classes compiled while it still exists. */
+@source "../";
+
+/* Self-hosted display and UI face; no render-blocking font CDN request. */
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("./fonts/montserrat-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Montserrat";
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url("./fonts/montserrat-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@theme {
+  /* "Noto Sans Symbols 2" carries the solid black chess glyphs U+265A..U+265F,
+     which the default stacks on this machine do not have. It goes last in every
+     stack: per-glyph fallback then reaches it only for the pieces, and its
+     wide-advance digits never displace the real text faces. */
+  --font-display: "Montserrat", system-ui, sans-serif, "Noto Sans Symbols 2";
+  --font-sans: "Montserrat", system-ui, sans-serif, "Noto Sans Symbols 2";
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace, "Noto Sans Symbols 2";
+
+  /* Broadcast desk: quiet charcoal surfaces, one restrained green accent. */
+  --color-void: #151916;
+  --color-pit: #1c211d;
+  --color-deck: #242b25;
+  --color-rail: #3b453d;
+  --color-mist: #adb9ae;
+  --color-chalk: #f1f4ed;
+  --color-brand: #a4ce80;
+  --color-brand-hi: #c1e3a4;
+  --color-brand-lo: #567743;
+
+  --color-board-light: #e1e6d5;
+  --color-board-dark: #72866a;
+  --color-board-move: #becd82;
+  --color-live: #e0503c;
+  --color-gold: #e2b23c;
+
+  --color-aggressor: #e05a45;
+  --color-mason: #a8927c;
+  --color-ledger: #d9a94c;
+  --color-architect: #5b9bd5;
+  --color-economist: #4fa98f;
+  --color-blitzkrieg: #c96aa5;
+}
+
+@layer base {
+  html,
+  body,
+  #lab {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-void);
+    color: var(--color-chalk);
+    font-family: var(--font-sans);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand) 42%, transparent);
+  }
+
+  /* The browser's own surfaces, themed off the palette rather than left grey. */
+  * {
+    scrollbar-color: var(--color-rail) transparent;
+    scrollbar-width: thin;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-hi);
+    outline-offset: 2px;
+  }
+
+  a, button, input, select, summary {
+    accent-color: var(--color-brand);
+    caret-color: var(--color-brand);
+    text-underline-offset: 0.25em;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Both sides draw the same solid glyph and are told apart the way a real
+     piece set does it: a white body with a dark keyline, a near-black body
+     with a light one. The face is pinned rather than left to per-glyph
+     fallback, which on this machine serves some pieces solid and others
+     hollow — invisible on a dark board, glaring on a light one. */
+  .piece-dark,
+  .piece-light {
+    font-family: "Noto Sans Symbols 2", sans-serif;
+  }
+
+  .piece-dark {
+    color: #322e2b;
+    -webkit-text-stroke: 0.7px #f4f4ee;
+  }
+
+  .piece-light {
+    color: #ffffff;
+    -webkit-text-stroke: 0.9px #322e2b;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

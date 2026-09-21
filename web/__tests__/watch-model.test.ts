@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DecisionRecord, RevealedGame } from "../../src/core/types.ts";
+import { OPENINGS } from "../../src/season/openings.ts";
 import {
   NO_GUESSES,
   probabilityBars,
+  replayDecisions,
+  replayOpening,
   recordGuess,
   scrub,
   settleGuess,
@@ -11,6 +14,8 @@ import {
 import type { GuessState } from "../src/watch-model.ts";
 
 const OPENING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const ITALIAN = OPENINGS.find((opening) => opening.id === "italian-game");
+if (ITALIAN === undefined) throw new Error("Italian Game opening fixture is missing");
 
 function buildDecision(overrides: Partial<DecisionRecord> = {}): DecisionRecord {
   return {
@@ -282,5 +287,51 @@ describe("scrub", () => {
 
     expect(scrub(bare, 0)).toEqual({ fen: "opening-fen", index: 0, decision: undefined });
     expect(scrub(bare, 5)).toEqual(scrub(bare, 0));
+  });
+});
+
+describe("replayOpening", () => {
+  test("replays a known exact opening from the normal initial board with real move metadata", () => {
+    const replay = replayOpening(ITALIAN.id, ITALIAN.fen);
+
+    expect(replay).toBeDefined();
+    expect(replay?.name).toBe("Italian Game");
+    expect(replay?.positions).toHaveLength(ITALIAN.moves.length + 1);
+    expect(replay?.positions[0]).toBe(OPENING_FEN);
+    expect(replay?.positions.at(-1)).toBe(ITALIAN.fen);
+    expect(replay?.moves.map((move) => move.san)).toEqual([...ITALIAN.moves]);
+    expect(replay?.uciMoves).toEqual(["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"]);
+    expect(replay?.moves.map(({ capturedRole, capturedValue, isCheck }) => ({
+      capturedRole,
+      capturedValue,
+      isCheck,
+    }))).toEqual(
+      ITALIAN.moves.map(() => ({
+        capturedRole: undefined,
+        capturedValue: 0,
+        isCheck: false,
+      })),
+    );
+  });
+
+  test("does not fabricate opening history for an unknown id or mismatched first position", () => {
+    expect(replayOpening("not-a-real-opening", ITALIAN.fen)).toBeUndefined();
+    expect(replayOpening(ITALIAN.id, OPENING_FEN)).toBeUndefined();
+    expect(replayOpening(undefined, ITALIAN.fen)).toBeUndefined();
+    expect(replayOpening(ITALIAN.id, undefined)).toBeUndefined();
+  });
+
+  test("hands the final book position directly to the first saved decision", () => {
+    const firstDecision = buildDecision({
+      ply: ITALIAN.moves.length,
+      fen: ITALIAN.fen,
+      move: "d2d3",
+    });
+    const openingReplay = replayOpening(ITALIAN.id, firstDecision.fen);
+    const decisionReplay = replayDecisions([firstDecision]);
+
+    expect(openingReplay?.positions.at(-1)).toBe(firstDecision.fen);
+    expect(decisionReplay.positions[0]).toBe(firstDecision.fen);
+    expect(openingReplay?.positions.at(-1)).toBe(decisionReplay.positions[0]);
   });
 });

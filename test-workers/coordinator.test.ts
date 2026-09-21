@@ -337,7 +337,9 @@ describe("SeasonDurableObject.record", () => {
     // A rejected roster must not have started the season behind our back:
     // `start` schedules a one-ply alarm per game, which would play it anyway.
     await expect(
-      seasonStub("coordinator-lineage-2").standings(),
+      runInDurableObject(seasonStub("coordinator-lineage-2"), (instance: SeasonDurableObject) =>
+        instance.standings(),
+      ),
     ).rejects.toThrow(/has not been started/);
 
     await recordSeason(seasonStub("coordinator-lineage-3"), {

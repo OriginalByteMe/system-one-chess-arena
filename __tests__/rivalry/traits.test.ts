@@ -38,8 +38,9 @@ function h2h(fields: {
 
 const NEMESIS_RULE = TRAIT_RULES.find((rule) => rule.id === "nemesis");
 const AVENGER_RULE = TRAIT_RULES.find((rule) => rule.id === "avenger");
-if (!NEMESIS_RULE || !AVENGER_RULE) {
-  throw new Error("expected the shipped catalogue to contain nemesis and avenger");
+const CLEAN_SLATE_RULE = TRAIT_RULES.find((rule) => rule.id === "clean-slate");
+if (!NEMESIS_RULE || !AVENGER_RULE || !CLEAN_SLATE_RULE) {
+  throw new Error("expected the shipped catalogue to contain nemesis, avenger and clean-slate");
 }
 
 describe("activeTraits", () => {
@@ -155,9 +156,9 @@ describe("activeTraits", () => {
     expect(avenger.gameIds).toEqual(["g1", "g2", "g3", "g4"]);
   });
 
-  test("gives no traits for an empty history", () => {
+  test("gives no traits for an empty history when no rule declares first-meeting", () => {
     const h = h2h({ recent: [], gameIds: [], streak: 0 });
-    expect(activeTraits(h)).toEqual([]);
+    expect(activeTraits(h, [NEMESIS_RULE, AVENGER_RULE])).toEqual([]);
   });
 
   test("keeps at most MAX_ACTIVE_TRAITS, highest priority first, then rule order", () => {
@@ -225,16 +226,171 @@ describe("activeTraits", () => {
     expect(activeTraits(h, [custom]).map((t) => t.rule)).toEqual(["custom-quick-loss"]);
     expect(activeTraits(h, TRAIT_RULES).map((t) => t.rule)).toEqual([]);
   });
+
+  test("fires clean-slate on a first meeting", () => {
+    const h = h2h({ recent: [], gameIds: [], streak: 0 });
+
+    const traits = activeTraits(h);
+    expect(traits).toHaveLength(1);
+    expect(traits[0]?.rule).toBe("clean-slate");
+    expect(traits[0]?.gameIds).toEqual([]);
+  });
+
+  test("does not fire clean-slate once there is at least one recorded game", () => {
+    const h = h2h({ recent: ["draw"], gameIds: ["g1"], streak: 1, draws: 1 });
+    expect(activeTraits(h).some((t) => t.rule === "clean-slate")).toBe(false);
+  });
+
+  test("fires hot-streak on exactly three consecutive wins", () => {
+    const h = h2h({
+      recent: ["win", "win", "win"],
+      gameIds: ["g1", "g2", "g3"],
+      streak: 3,
+      wins: 3,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "hot-streak")).toBe(true);
+    expect(activeTraits(h).some((t) => t.rule === "dominant")).toBe(false);
+  });
+
+  test("does not fire hot-streak on two consecutive wins", () => {
+    const h = h2h({ recent: ["win", "win"], gameIds: ["g1", "g2"], streak: 2, wins: 2 });
+    expect(activeTraits(h).some((t) => t.rule === "hot-streak")).toBe(false);
+  });
+
+  test("fires dominant on five consecutive wins", () => {
+    const h = h2h({
+      recent: ["win", "win", "win", "win", "win"],
+      gameIds: ["g1", "g2", "g3", "g4", "g5"],
+      streak: 5,
+      wins: 5,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "dominant")).toBe(true);
+  });
+
+  test("fires stonewall on four consecutive draws", () => {
+    const h = h2h({
+      recent: ["draw", "draw", "draw", "draw"],
+      gameIds: ["g1", "g2", "g3", "g4"],
+      streak: 4,
+      draws: 4,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "stonewall")).toBe(true);
+  });
+
+  test("does not fire stonewall on three consecutive draws", () => {
+    const h = h2h({
+      recent: ["draw", "draw", "draw"],
+      gameIds: ["g1", "g2", "g3"],
+      streak: 3,
+      draws: 3,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "stonewall")).toBe(false);
+  });
+
+  test("fires cold-snap when a loss ends a run of at least three wins", () => {
+    const h = h2h({
+      recent: ["win", "win", "win", "loss"],
+      gameIds: ["g1", "g2", "g3", "g4"],
+      streak: 1,
+      wins: 3,
+      losses: 1,
+    });
+
+    const coldSnap = activeTraits(h).find((t) => t.rule === "cold-snap");
+    if (!coldSnap) throw new Error("expected cold-snap to fire");
+    expect(coldSnap.gameIds).toEqual(["g1", "g2", "g3", "g4"]);
+  });
+
+  test("does not fire cold-snap when only two wins precede the loss", () => {
+    const h = h2h({
+      recent: ["win", "win", "loss"],
+      gameIds: ["g1", "g2", "g3"],
+      streak: 1,
+      wins: 2,
+      losses: 1,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "cold-snap")).toBe(false);
+  });
+
+  test("fires dead-heat on an equal record over at least six games", () => {
+    const h = h2h({
+      recent: ["win", "loss", "win", "loss", "win", "loss"],
+      gameIds: ["g1", "g2", "g3", "g4", "g5", "g6"],
+      streak: 1,
+      wins: 3,
+      losses: 3,
+    });
+
+    const deadHeat = activeTraits(h).find((t) => t.rule === "dead-heat");
+    if (!deadHeat) throw new Error("expected dead-heat to fire");
+    expect(deadHeat.gameIds).toEqual(["g1", "g2", "g3", "g4", "g5", "g6"]);
+  });
+
+  test("does not fire dead-heat when the record is uneven despite six games", () => {
+    const h = h2h({
+      recent: ["win", "win", "win", "win", "loss", "loss"],
+      gameIds: ["g1", "g2", "g3", "g4", "g5", "g6"],
+      streak: 2,
+      wins: 4,
+      losses: 2,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "dead-heat")).toBe(false);
+  });
+
+  test("does not fire dead-heat when the record is even but under six games", () => {
+    const h = h2h({
+      recent: ["win", "loss"],
+      gameIds: ["g1", "g2"],
+      streak: 1,
+      wins: 1,
+      losses: 1,
+    });
+
+    expect(activeTraits(h).some((t) => t.rule === "dead-heat")).toBe(false);
+  });
+
+  test("caps three real matching rules to the two highest priority", () => {
+    const h = h2h({
+      recent: ["loss", "loss", "loss", "loss", "loss", "win", "win", "win", "win", "win"],
+      gameIds: ["g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10"],
+      streak: 5,
+      wins: 5,
+      losses: 5,
+    });
+
+    // dominant, hot-streak and dead-heat all match this history; the cap
+    // keeps only the two highest-priority rules, in priority order.
+    const traits = activeTraits(h);
+    expect(traits).toHaveLength(MAX_ACTIVE_TRAITS);
+    expect(traits.map((t) => t.rule)).toEqual(["dominant", "hot-streak"]);
+  });
 });
 
 describe("resolveManifest", () => {
   test("returns the base manifest unchanged when no traits are active", () => {
     const h = h2h({ recent: [], gameIds: [], streak: 0 });
-    const resolved = resolveManifest(SCRIPTED_MANIFEST, "bob", h);
+    const resolved = resolveManifest(SCRIPTED_MANIFEST, "bob", h, []);
 
     expect(resolved.manifest).toEqual(SCRIPTED_MANIFEST);
     expect(resolved.manifest.version).toBe(SCRIPTED_MANIFEST.version);
     expect(resolved.traits).toEqual([]);
+  });
+
+  test("resolves the clean-slate suffix for a first meeting under the shipped catalogue", () => {
+    const h = h2h({ recent: [], gameIds: [], streak: 0 });
+    const resolved = resolveManifest(SCRIPTED_MANIFEST, "bob", h);
+
+    expect(resolved.traits).toHaveLength(1);
+    expect(resolved.traits[0]?.rule).toBe("clean-slate");
+    expect(resolved.manifest.playstyle).toBe(
+      SCRIPTED_MANIFEST.playstyle + CLEAN_SLATE_RULE.playstyleSuffix,
+    );
   });
 
   test("changes only playstyle and strategy order when a trait is active", () => {
