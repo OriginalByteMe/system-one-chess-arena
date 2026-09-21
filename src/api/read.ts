@@ -1,5 +1,6 @@
 import { ContractViolation } from "../core/errors.ts";
 import { cacheControl, revealGame, revealedMoves } from "../broadcast/gate.ts";
+import { revealWindow } from "../broadcast/clock.ts";
 import { revealBracket } from "../match/bracket.ts";
 import { headToHeadFor, pairKey } from "../rivalry/head-to-head.ts";
 import { activeTraits } from "../rivalry/traits.ts";
@@ -194,9 +195,11 @@ export async function bracketView(
     for (const gameId of match.gameIds) uniqueGameIds.add(gameId);
   }
   const finishedGameIds = new Set<string>();
-  for (const gameId of uniqueGameIds) {
-    const loaded = await loadRevealedGame(context, seasonId, gameId);
-    if (loaded !== undefined && loaded.revealed.window.status === "finished") {
+  for (const recorded of await context.store.games(seasonId)) {
+    const gameId = recorded.summary.gameId;
+    if (!uniqueGameIds.has(gameId)) continue;
+    const decisions = await context.store.decisions(seasonId, gameId);
+    if (revealWindow(recorded.schedule, decisions.length, context.now).status === "finished") {
       finishedGameIds.add(gameId);
     }
   }
@@ -355,9 +358,11 @@ async function bracketGameWindows(
     for (const gameId of match.gameIds) gameIds.add(gameId);
   }
   const windows: RevealWindow[] = [];
-  for (const gameId of gameIds) {
-    const loaded = await loadRevealedGame(context, seasonId, gameId);
-    if (loaded !== undefined) windows.push(loaded.revealed.window);
+  for (const recorded of await context.store.games(seasonId)) {
+    const gameId = recorded.summary.gameId;
+    if (!gameIds.has(gameId)) continue;
+    const decisions = await context.store.decisions(seasonId, gameId);
+    windows.push(revealWindow(recorded.schedule, decisions.length, context.now));
   }
   return windows;
 }
