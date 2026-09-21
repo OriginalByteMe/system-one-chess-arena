@@ -237,6 +237,7 @@ describe("advanceBracket", () => {
     const advanced = advanceBracket(bracket, []);
 
     expect(matchById(advanced, byeMatch.matchId).winner).toBe(liveName);
+    expect(byeMatch.gameIds).toEqual([]);
     expect(matchById(advanced, liveMatch.matchId).winner).toBeUndefined();
   });
 
@@ -249,6 +250,19 @@ describe("advanceBracket", () => {
     const twice = advanceBracket(once, [outcome]);
 
     expect(twice).toEqual(once);
+  });
+
+  test("keeps earlier winners when only the next round's outcomes arrive", () => {
+    const bracket = simpleFourBracket();
+    const firstRound = bracket.rounds[0]!.map((match) => scoreOutcome(match, "a"));
+    const semifinal = advanceBracket(bracket, firstRound);
+    const final = semifinal.rounds[1]![0]!;
+    const finalOutcome = scoreOutcome(final, "b");
+    const completed = advanceBracket(semifinal, [finalOutcome]);
+
+    expect(completed.rounds[0]).toEqual(semifinal.rounds[0]);
+    expect(completed.rounds[1]![0]).toEqual({ ...final, winner: finalOutcome.winner });
+    expect(advanceBracket(completed, [])).toEqual(completed);
   });
 
   test("rejects an outcome for a match id that is not in the bracket", () => {

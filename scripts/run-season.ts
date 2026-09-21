@@ -365,7 +365,8 @@ function matchUpsertSql(match: Match): string {
     `${sqlString(JSON.stringify(match.gameIds))}, ${sqlNullableString(match.winner)}) ` +
     "ON CONFLICT (match_id) DO UPDATE SET " +
     "competitor_a = excluded.competitor_a, competitor_b = excluded.competitor_b, " +
-    "feeder_a = excluded.feeder_a, feeder_b = excluded.feeder_b, winner = excluded.winner;"
+    "feeder_a = excluded.feeder_a, feeder_b = excluded.feeder_b, " +
+    "game_ids_json = excluded.game_ids_json, winner = excluded.winner;"
   );
 }
 

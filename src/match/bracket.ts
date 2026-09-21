@@ -98,7 +98,7 @@ export function buildBracket(args: BracketArgs): Bracket {
       a: slotFor(rankA, seeds),
       b: slotFor(rankB, seeds),
       bestOf,
-      gameIds: gameIdsFor(matchId, bestOf),
+      gameIds: rankA > seeds.length || rankB > seeds.length ? [] : gameIdsFor(matchId, bestOf),
     });
   }
 
@@ -138,6 +138,7 @@ export function buildBracket(args: BracketArgs): Bracket {
  * - A later round's slot becomes "competitor" only when its feeder match has a
  *   winner; otherwise it stays "winner-of".
  * - Idempotent: applying the same outcomes twice gives the same bracket.
+ * - Outcomes may arrive round by round; previous winners remain resolved.
  * - An outcome for a match not in the bracket is a ContractViolation.
  */
 export function advanceBracket(
@@ -184,7 +185,7 @@ export function advanceBracket(
           : b.kind === "bye" && a.kind === "competitor"
             ? a.competitor
             : undefined;
-      const winner = byeWinner ?? outcomeByMatchId.get(match.matchId)?.winner;
+      const winner = byeWinner ?? outcomeByMatchId.get(match.matchId)?.winner ?? match.winner;
       resolved.push(withResolution(match, a, b, winner));
     }
     rounds.push(resolved);
