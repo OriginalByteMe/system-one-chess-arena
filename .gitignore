@@ -17,3 +17,5 @@ web/lab.html
 # Browser E2E failure artifacts.
 test-results/
 playwright-report/
+
+/brag-output/
