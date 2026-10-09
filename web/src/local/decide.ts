@@ -1,5 +1,5 @@
 // One local decision: strategy (if the persona declares one first), then the
-// move, each read from the model's token logprobs. The model sits behind the
+// move (in rounds, if there are more legal moves than labels), each read from the model's token logprobs. The model sits behind the
 // `Asker` seam so this logic runs, and is tested, without a GPU.
 import { applyFallback, validateDecision } from "../../../src/core/validation.ts";
 import type {
@@ -61,6 +61,11 @@ export async function decideLocally(
       strategy = read.choice;
     }
 
+    // Each chunk's probabilities are normalised within that chunk, so they
+    // cannot be compared across chunks: a short last chunk reads 100% for
+    // almost any move. With more than one chunk, the chunk winners go to a
+    // final round, and that single prompt's distribution is the answer.
+    const winners: Uci[] = [];
     let best: ChoiceRead | undefined;
     for (const moves of chunkOptions<Uci>(input.legalMoves)) {
       const question = moveQuestion(input, moves, strategy);
@@ -69,7 +74,16 @@ export async function decideLocally(
       if (read === undefined) {
         return fail("malformed-response", "the move answer was not one of the labels");
       }
-      if (best === undefined || read.confidence > best.confidence) best = read;
+      winners.push(read.choice);
+      best = read;
+    }
+    if (winners.length > 1) {
+      const question = moveQuestion(input, winners, strategy);
+      calls += 1;
+      best = readChoice(await asker.topTokens(question.messages), question.labelled);
+      if (best === undefined) {
+        return fail("malformed-response", "the final-round answer was not one of the labels");
+      }
     }
     if (best === undefined) return fail("malformed-response", "no move was offered");
 

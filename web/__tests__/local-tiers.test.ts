@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { prebuiltAppConfig } from "@mlc-ai/web-llm";
 
 import {
   GFLOPS_PER_BILLION_PARAMS,
@@ -101,6 +102,16 @@ describe("chooseTier", () => {
 });
 
 describe("tier table", () => {
+  test("every model id is registered in the installed WebLLM prebuilt config", () => {
+    // CreateWebWorkerMLCEngine only loads ids in this registry; a WebLLM
+    // upgrade that renames or drops one must fail here, not on a visitor's GPU.
+    const registered = new Set(prebuiltAppConfig.model_list.map((model) => model.model_id));
+    for (const tier of TIERS) {
+      expect(registered.has(tier.modelF16)).toBe(true);
+      expect(registered.has(tier.modelF32)).toBe(true);
+    }
+  });
+
   test("required compute grows with model size", () => {
     expect(GFLOPS_PER_BILLION_PARAMS).toBeGreaterThan(0);
     const sized = [...TIERS].sort((a, b) => a.paramsB - b.paramsB).map(requiredGflops);

@@ -159,22 +159,29 @@ describe("decideLocally", () => {
     expect(result.detail).toBe("device lost");
   });
 
-  test("a position with more moves than labels asks once per chunk and keeps the most confident", async () => {
+  test("more moves than labels: chunk winners meet in a final round instead of racing on per-chunk confidence", async () => {
     // 218 legal moves is the known maximum; this FEN has well over 62.
     const fen = "R6R/3Q4/1Q4Q1/4Q3/2Q4Q/Q4Q2/pp1Q4/kBNN1KB1 w - - 0 1";
     const input = inputFor("architect", fen);
     expect(input.legalMoves.length).toBeGreaterThan(LABELS.length);
+    const chunks = Math.ceil(input.legalMoves.length / LABELS.length);
     let call = 0;
     const model = asker(() => {
       call += 1;
-      // Hierarchical strategy call first, then one call per move chunk.
-      return call === 1 ? [lp("A", 0.9)] : call === 2 ? [lp("A", 0.4), lp("B", 0.4)] : [lp("C", 0.95)];
+      if (call === 1) return [lp("A", 0.9)]; // strategy
+      if (call < 2 + chunks - 1) return [lp("A", 0.4), lp("B", 0.4)]; // full chunks, unsure
+      if (call === 2 + chunks - 1) return [lp("A", 1)]; // short last chunk: trivially 100%
+      return [lp("A", 0.7), lp("D", 0.2)]; // final round over the chunk winners
     });
     const result = await decideLocally(input, model, clock, createRng("t"));
-    const chunks = Math.ceil(input.legalMoves.length / LABELS.length);
-    expect(model.calls).toBe(1 + chunks);
+    // strategy + one call per chunk + the final round
+    expect(model.calls).toBe(1 + chunks + 1);
     expect(result.decision.fallback).toBeUndefined();
-    expect(result.decision.confidence).toBeGreaterThan(0.9);
+    // The first chunk's winner wins the final round; the last chunk's trivial
+    // 100% must not have decided it.
+    expect(result.decision.move).toBe(input.legalMoves[0]!);
+    expect(result.decision.confidence).toBeCloseTo(0.7 / 0.9, 12);
+    expect(Object.keys(result.decision.distribution ?? {})).toHaveLength(2);
   });
 });
 
