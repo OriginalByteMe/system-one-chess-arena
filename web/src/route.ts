@@ -11,6 +11,7 @@
  *   /bracket/<id>                     bracket
  *   /competitor/<name>                competitor profile
  *   /competitor/<name>/vs/<name>      head to head
+ *   /local                            run a persona on the visitor's own GPU
  *   /privacy                          what the site collects
  *   /admin                            operator console, behind Cloudflare Access
  *
@@ -33,6 +34,7 @@ export type Route =
       readonly competitor: string;
       readonly opponent: string;
     }
+  | { readonly kind: "local" }
   | { readonly kind: "privacy" }
   | { readonly kind: "admin" }
   | { readonly kind: "notFound"; readonly path: string };
@@ -75,6 +77,7 @@ export function parseRoute(pathname: string, search: string): Route {
   const [head, first, second, third] = segments;
 
   if (segments.length === 0) return fromQuery(search) ?? { kind: "home" };
+  if (segments.length === 1 && head === "local") return { kind: "local" };
   if (segments.length === 1 && head === "privacy") return { kind: "privacy" };
   if (segments.length === 1 && head === "admin") return { kind: "admin" };
 
@@ -137,6 +140,8 @@ export function href(route: Route): string {
       return `/competitor/${segment(route.competitor)}`;
     case "rivalry":
       return `/competitor/${segment(route.competitor)}/vs/${segment(route.opponent)}`;
+    case "local":
+      return "/local";
     case "privacy":
       return "/privacy";
     case "admin":

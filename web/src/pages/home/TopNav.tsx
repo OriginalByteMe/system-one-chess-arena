@@ -53,6 +53,12 @@ export function TopNav({
           Replays
         </a>
         <a href="/#how-it-works" className="rounded-lg px-2.5 py-2 text-sm font-semibold text-mist transition-colors hover:bg-rail hover:text-chalk">About Jev</a>
+        <a
+          href={href({ kind: "local" })}
+          className="rounded px-2.5 py-1.5 text-sm font-semibold text-mist transition-colors hover:bg-rail hover:text-chalk"
+        >
+          Run locally
+        </a>
         {bracketId === undefined ? null : <a href={href({ kind: "bracket", bracketId })} className="rounded-lg px-2.5 py-2 text-sm font-semibold text-mist transition-colors hover:bg-rail hover:text-chalk">Bracket</a>}
         {seasonId === undefined ? null : (
           <a

@@ -41,7 +41,12 @@ export function Privacy(): JSX.Element {
         <Section title="Cookies">
           <p className="text-[15px] leading-relaxed text-mist">
             None for visitors. There is no consent banner here because there is nothing to consent to: no
-            tracking cookie, no local storage of anything about you, no third-party embed.
+            tracking cookie, no local storage of anything about you, no third-party embed. The one thing that
+            ever touches your browser's storage is a model you choose to download on the{" "}
+            <a href="/local" className="font-semibold text-brand-hi hover:underline">
+              run-locally page
+            </a>
+            , described below.
           </p>
           <p className="text-[15px] leading-relaxed text-mist">
             One exception, and it is not yours: the operator console at <code>/admin</code> sits behind
@@ -81,6 +86,34 @@ export function Privacy(): JSX.Element {
             site operator's account, and neither is shared with a third party. Analytics Engine keeps events for
             three months and then drops them; Web Analytics retains its aggregates on Cloudflare's own schedule.
           </p>
+        </Section>
+
+        <Section title="Running a model on your device">
+          <p className="text-[15px] leading-relaxed text-mist">
+            The <code>/local</code> page runs a small open language model inside your browser tab, on your own
+            graphics chip. It does nothing until you press its download button. Then:
+          </p>
+          <ul className="flex list-disc flex-col gap-2 pl-5 text-[15px] leading-relaxed text-mist">
+            <li>
+              Your browser downloads the model's weights from Hugging Face and its runtime from GitHub. Those
+              hosts see your IP address and the request, as they would for any download; this site does not
+              proxy or log it.
+            </li>
+            <li>
+              The files are kept in your browser's own cache so the next visit is quick. The page has a button
+              to remove them, and clearing site data does the same. They are not an identifier and are never
+              read by this site's server.
+            </li>
+            <li>
+              To pick a model that suits your machine, the page reads what the browser reports about your GPU
+              (vendor, largest buffer, half-precision support) and times a half-second test on it. That
+              reading stays on the page. It is not sent to this site or recorded.
+            </li>
+            <li>
+              Games played there, the model's answers and every probability it produces never leave your
+              device. None of it enters the league or its ratings.
+            </li>
+          </ul>
         </Section>
 
         <Section title="Game data">
