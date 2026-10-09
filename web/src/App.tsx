@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import type { JSX } from "react";
 
 import { Admin } from "./pages/Admin.tsx";
@@ -12,6 +13,9 @@ import { Privacy } from "./pages/Privacy.tsx";
 import { Rivalry } from "./pages/Rivalry.tsx";
 import { Watch } from "./pages/Watch.tsx";
 import { parseRoute } from "./route.ts";
+
+// The lab pulls in a WebGPU model runtime, so it loads only when asked for.
+const Local = lazy(() => import("./pages/Local.tsx").then((module) => ({ default: module.Local })));
 
 export function App(): JSX.Element {
   const route = parseRoute(window.location.pathname, window.location.search);
@@ -33,6 +37,12 @@ export function App(): JSX.Element {
       return <Competitor competitor={route.competitor} />;
     case "rivalry":
       return <Rivalry competitor={route.competitor} opponent={route.opponent} />;
+    case "local":
+      return (
+        <Suspense fallback={null}>
+          <Local />
+        </Suspense>
+      );
     case "privacy":
       return <Privacy />;
     case "admin":

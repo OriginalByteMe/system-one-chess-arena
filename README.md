@@ -21,6 +21,25 @@ bun run typecheck
 bun run dev        # wrangler dev on :8787
 ```
 
+## Running a persona on your own GPU (`/local`)
+
+League games are decided by Jev on the server. `/local` is the opposite on
+purpose: a small open model runs in the visitor's browser over WebGPU
+(`@mlc-ai/web-llm`), plays a persona's brief against them, and answers with a
+probability for each option read from the model's own token logprobs. Nothing
+there is recorded, rated, or sent to the arena.
+
+The model is picked by `web/src/local/tiers.ts` from what the browser reports
+(WebGPU adapter limits, half-precision support, reported RAM, mobile) and a
+half-second matmul benchmark (`bench.ts`): Llama 3.2 1B, then Qwen3.5 2B, 4B and
+9B. Weights come from Hugging Face on an explicit click, and a model that fails
+to load steps down a tier. The thresholds are first-pass estimates, not
+calibrated on real devices; they sit in one file so they can be tuned.
+
+WebLLM caps `top_logprobs` at 5, so a browser decision carries the model's top
+five options (renormalised) plus the `tailMass` it could not see, where Jev
+returns a full distribution.
+
 ## Deploying
 
 The site runs live on Cloudflare Workers, Durable Objects and D1. First-time
